@@ -15,6 +15,7 @@ import {
   subscribeLeaderboard,
   type LeaderboardEntry,
 } from "./leaderboard";
+import { isBlockedName } from "./profanity";
 
 const WORLD_WIDTH = 1280;
 const WORLD_HEIGHT = 720;
@@ -3019,6 +3020,11 @@ function PizzaDashGame() {
     const phone = playerPhone.trim();
     if (!name) {
       setSaveError("Please enter your name");
+      nameInputRef.current?.focus();
+      return;
+    }
+    if (isBlockedName(name)) {
+      setSaveError("Please choose a different name");
       nameInputRef.current?.focus();
       return;
     }

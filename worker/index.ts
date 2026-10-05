@@ -11,6 +11,8 @@
 //   DELETE /api/admin/scores/:id
 // Everything else is served from public/ (game at /, admin page at /admin/).
 
+import { isBlockedName } from "../src/profanity";
+
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
@@ -119,6 +121,7 @@ async function handleSubmit(request: Request, env: Env, ctx: ExecutionContext) {
   const switches = Number(body.switches);
   const distance = Number(body.distance);
   if (!name) return fail(400, "Please enter your name");
+  if (isBlockedName(name)) return fail(400, "Please choose a different name");
   if (!EMAIL.test(email)) return fail(400, "Please enter a valid email");
   if (!PHONE.test(phone)) return fail(400, "Please enter a valid phone number");
   if (body.consent !== true) return fail(400, "Please tick the box to agree to be contacted");
