@@ -27,32 +27,42 @@ const REFRESH_MS = 15_000;
 const listeners = new Set<(entries: LeaderboardEntry[]) => void>();
 let runToken: string | null = null;
 
-async function fetchTop(): Promise<LeaderboardEntry[]> {
-  const response = await fetch("/api/leaderboard", { cache: "no-store" });
+async function fetchTop(fresh = false): Promise<LeaderboardEntry[]> {
+  const response = await fetch(fresh ? "/api/leaderboard?fresh=1" : "/api/leaderboard", { cache: "no-store" });
   if (!response.ok) throw new Error(`leaderboard ${response.status}`);
   const data = (await response.json()) as { scores: LeaderboardEntry[] };
   return data.scores;
 }
 
-async function refresh(onError?: (message: string) => void) {
+async function refresh(onError?: (message: string) => void, fresh = false) {
   try {
-    const entries = await fetchTop();
+    const entries = await fetchTop(fresh);
     listeners.forEach((listener) => listener(entries));
   } catch {
     onError?.("Leaderboard unavailable right now");
   }
 }
 
+/**
+ * Delivers the top 10 now, and every REFRESH_MS while `poll` is on and the
+ * tab is visible. The game polls only on the game-over screens, so players in
+ * the middle of a run don't use any server requests.
+ */
 export function subscribeLeaderboard(
   onChange: (entries: LeaderboardEntry[]) => void,
   onError: (message: string) => void,
+  { poll }: { poll: boolean },
 ): () => void {
   listeners.add(onChange);
   void refresh(onError);
-  const timer = window.setInterval(() => void refresh(onError), REFRESH_MS);
+  const timer = poll
+    ? window.setInterval(() => {
+        if (!document.hidden) void refresh(onError);
+      }, REFRESH_MS)
+    : 0;
   return () => {
     listeners.delete(onChange);
-    window.clearInterval(timer);
+    if (timer) window.clearInterval(timer);
   };
 }
 
@@ -82,6 +92,6 @@ export async function addScore(entry: NewEntry): Promise<{ id: string; rank: num
   const data = (await response.json().catch(() => ({}))) as { id?: string; rank?: number; error?: string };
   if (!response.ok || !data.id) throw new SubmitError(data.error ?? "Couldn't save your score. Please try again.");
   runToken = null;
-  void refresh();
+  void refresh(undefined, true);
   return { id: data.id, rank: data.rank ?? 0 };
 }

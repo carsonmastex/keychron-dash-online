@@ -105,7 +105,7 @@ function sinceIso(minutes: number) {
   return new Date(Date.now() - minutes * 60_000).toISOString();
 }
 
-async function handleSubmit(request: Request, env: Env) {
+async function handleSubmit(request: Request, env: Env, ctx: ExecutionContext) {
   let body: Record<string, unknown>;
   try {
     body = await request.json();
@@ -146,6 +146,7 @@ async function handleSubmit(request: Request, env: Env) {
       .bind(name, email, phone, score, switches, distance, run.nonce, ip, now, now)
       .first<{ id: number }>();
     const above = await env.DB.prepare("SELECT COUNT(*) AS n FROM scores WHERE score > ?").bind(score).first<{ n: number }>();
+    await invalidateLeaderboard(ctx);
     return json({ id: String(row?.id), rank: (above?.n ?? 0) + 1 });
   } catch (error) {
     if (String(error).includes("UNIQUE")) return fail(409, "This game has already been saved.");
@@ -153,13 +154,55 @@ async function handleSubmit(request: Request, env: Env) {
   }
 }
 
-async function handleLeaderboard(env: Env) {
+// The top 10 is cached for LEADERBOARD_CACHE_SECONDS so crowds of players
+// don't each hit the database: first in this isolate's memory (works on any
+// hostname), then in Cloudflare's edge cache where available. "?fresh=1"
+// (sent once right after saving a score) skips both so players see themselves.
+const LEADERBOARD_CACHE_SECONDS = 10;
+const LEADERBOARD_CACHE_KEY = "https://cache.keychron-dash/leaderboard";
+let memoryBoard: { body: string; expires: number } | null = null;
+
+async function readLeaderboard(env: Env) {
   const { results } = await env.DB.prepare(
     "SELECT id, name, score, switches, distance, created_at AS createdAt FROM scores ORDER BY score DESC, id ASC LIMIT ?",
   )
     .bind(TOP_N)
     .all();
-  return json({ scores: results.map((r) => ({ ...r, id: String(r.id) })) }, 200, { "cache-control": "public, max-age=5" });
+  return JSON.stringify({ scores: results.map((r) => ({ ...r, id: String(r.id) })) });
+}
+
+function boardResponse(body: string) {
+  return new Response(body, {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": `public, max-age=${LEADERBOARD_CACHE_SECONDS}`,
+    },
+  });
+}
+
+async function handleLeaderboard(url: URL, env: Env, ctx: ExecutionContext) {
+  const fresh = url.searchParams.has("fresh");
+  const now = Date.now();
+  if (!fresh && memoryBoard && memoryBoard.expires > now) return boardResponse(memoryBoard.body);
+  const edge = caches.default;
+  if (!fresh) {
+    const hit = await edge.match(LEADERBOARD_CACHE_KEY);
+    if (hit) {
+      const body = await hit.text();
+      memoryBoard = { body, expires: now + LEADERBOARD_CACHE_SECONDS * 1000 };
+      return boardResponse(body);
+    }
+  }
+  const body = await readLeaderboard(env);
+  memoryBoard = { body, expires: now + LEADERBOARD_CACHE_SECONDS * 1000 };
+  ctx.waitUntil(edge.put(LEADERBOARD_CACHE_KEY, boardResponse(body)));
+  return boardResponse(body);
+}
+
+/** Drop cached copies after the board changes (this location only; others expire within 10 s). */
+async function invalidateLeaderboard(ctx: ExecutionContext) {
+  memoryBoard = null;
+  ctx.waitUntil(caches.default.delete(LEADERBOARD_CACHE_KEY).then(() => undefined));
 }
 
 async function handleLogin(request: Request, env: Env) {
@@ -228,14 +271,14 @@ async function handleCsv(url: URL, env: Env) {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const { pathname } = url;
     const method = request.method;
     try {
       if (pathname === "/api/runs" && method === "POST") return json({ token: await newRunToken(env) });
-      if (pathname === "/api/leaderboard" && method === "GET") return handleLeaderboard(env);
-      if (pathname === "/api/scores" && method === "POST") return handleSubmit(request, env);
+      if (pathname === "/api/leaderboard" && method === "GET") return handleLeaderboard(url, env, ctx);
+      if (pathname === "/api/scores" && method === "POST") return handleSubmit(request, env, ctx);
 
       if (pathname === "/api/admin/login" && method === "POST") return handleLogin(request, env);
       if (pathname === "/api/admin/logout" && method === "POST")
@@ -248,6 +291,7 @@ export default {
         const del = pathname.match(/^\/api\/admin\/scores\/(\d+)$/);
         if (del && method === "DELETE") {
           await env.DB.prepare("DELETE FROM scores WHERE id = ?").bind(Number(del[1])).run();
+          await invalidateLeaderboard(ctx);
           return json({ ok: true });
         }
       }

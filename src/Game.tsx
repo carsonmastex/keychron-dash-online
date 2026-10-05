@@ -3106,20 +3106,23 @@ function PizzaDashGame() {
     setControl(control, true);
   };
 
+  // Load the board once for the BEST score, then keep it fresh only while the
+  // game-over screens are showing (no server requests during a run).
+  const onLeaderboard = useCallback((entries: LeaderboardEntry[]) => {
+    setLeaderboard(entries);
+    setLeaderboardError("");
+    const topScore = entries[0]?.score ?? 0;
+    highScoreRef.current = topScore;
+    setHighScore(topScore);
+  }, []);
   useEffect(
-    () =>
-      subscribeLeaderboard(
-        (entries) => {
-          setLeaderboard(entries);
-          setLeaderboardError("");
-          const topScore = entries[0]?.score ?? 0;
-          highScoreRef.current = topScore;
-          setHighScore(topScore);
-        },
-        (message) => setLeaderboardError(message),
-      ),
-    [],
+    () => subscribeLeaderboard(onLeaderboard, (message) => setLeaderboardError(message), { poll: false }),
+    [onLeaderboard],
   );
+  useEffect(() => {
+    if (mode !== "gameover") return;
+    return subscribeLeaderboard(onLeaderboard, (message) => setLeaderboardError(message), { poll: true });
+  }, [mode, onLeaderboard]);
 
   useEffect(() => {
     if (mode !== "gameover" || gameOverView !== "entry") return;
