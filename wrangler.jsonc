@@ -13,11 +13,12 @@
     {
       "binding": "DB",
       "database_name": "keychron-dash-online",
-      // Replace with the id printed by `npx wrangler d1 create keychron-dash-online`
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "9b307940-9bac-46e0-aaaf-a1ff511f0341",
       "migrations_dir": "migrations"
     }
   ],
+  "workers_dev": true,
+  "preview_urls": false,
   "observability": { "enabled": true }
   // Secrets (set with `npx wrangler secret put <NAME>`, never committed):
   //   ADMIN_PASSWORD  - password for /admin
