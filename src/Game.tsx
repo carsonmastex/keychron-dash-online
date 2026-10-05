@@ -3838,7 +3838,7 @@ function PizzaDashGame() {
                           checked={playerConsent}
                           onChange={(event) => setPlayerConsent(event.target.checked)}
                         />
-                        <span>I agree that Keychron and Mastex may contact me about this competition.</span>
+                        <span>I agree that Keychron may contact me about this competition.</span>
                       </label>
                       <small>
                         Only your name and score are shown publicly. Email and phone are used to contact winners and are never published.{" "}
