@@ -1,0 +1,26 @@
+{
+  "name": "keychron-dash-online",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "build:debug": "PAX_DEBUG=1 node build.mjs",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p worker",
+    "db:migrate:local": "wrangler d1 migrations apply keychron-dash-online --local",
+    "db:migrate:remote": "wrangler d1 migrations apply keychron-dash-online --remote",
+    "dev": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "dependencies": {
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261005.1",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "esbuild": "0.28.0",
+    "typescript": "5.9.3",
+    "wrangler": "^4.147.0"
+  }
+}

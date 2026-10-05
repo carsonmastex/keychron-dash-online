@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Keychron Dash Admin</title>
+<style>
+:root {
+  --ink: #1b1d22;
+  --muted: #5d6470;
+  --line: #e2ddd0;
+  --paper: #fffaf0;
+  --card: #ffffff;
+  --gold: #f5b21f;
+  --gold-dark: #b57d06;
+  --danger: #c62f3a;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 15px/1.5 Arial, Helvetica, sans-serif;
+}
+header {
+  align-items: center;
+  background: var(--ink);
+  color: #fff;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px clamp(16px, 4vw, 40px);
+}
+header h1 { font-size: 18px; margin: 0; }
+header h1 span { color: var(--gold); }
+main { margin: 0 auto; max-width: 1200px; padding: 24px clamp(16px, 4vw, 40px); }
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 24px;
+}
+#login-view .card { margin: 10vh auto 0; max-width: 380px; }
+#login-view h2 { margin: 0 0 6px; }
+#login-view p { color: var(--muted); margin: 0 0 18px; }
+label { display: block; font-weight: 700; margin-bottom: 6px; }
+input[type="password"], input[type="search"] {
+  border: 1px solid #cfc8b8;
+  border-radius: 10px;
+  font: inherit;
+  padding: 10px 12px;
+  width: 100%;
+}
+input:focus, button:focus-visible, a:focus-visible { outline: 3px solid var(--gold); outline-offset: 1px; }
+button, .button {
+  background: var(--gold);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: 0 3px 0 var(--gold-dark);
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-block;
+  font: 700 14px Arial, Helvetica, sans-serif;
+  padding: 10px 16px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+button.secondary { background: #ecebe6; box-shadow: 0 3px 0 #c9c6bb; }
+button.danger { background: transparent; box-shadow: none; color: var(--danger); padding: 4px 8px; }
+button.danger:hover { background: #fbe9ea; }
+#login-form button { margin-top: 14px; width: 100%; }
+.error { color: var(--danger); font-weight: 700; margin-top: 10px; min-height: 1.5em; }
+.toolbar { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.toolbar .search { flex: 1 1 260px; min-width: 0; }
+#summary { color: var(--muted); font-weight: 700; margin: 0 0 10px; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; font-variant-numeric: tabular-nums; min-width: 900px; width: 100%; }
+th, td { border-bottom: 1px solid var(--line); padding: 10px 8px; text-align: left; vertical-align: middle; }
+th { color: var(--muted); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+td.num { text-align: right; }
+td.score { font-weight: 700; }
+td.empty { color: var(--muted); padding: 32px 8px; text-align: center; }
+#more { margin-top: 16px; }
+#notice {
+  background: var(--ink);
+  border-radius: 10px;
+  bottom: 20px;
+  color: #fff;
+  left: 50%;
+  padding: 10px 16px;
+  position: fixed;
+  transform: translateX(-50%);
+}
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>KEYCHRON DASH <span>ADMIN</span></h1>
+  <button id="logout" class="secondary" type="button">Log out</button>
+</header>
+<main>
+  <section id="login-view" hidden>
+    <div class="card">
+      <h2>Admin login</h2>
+      <p>Scores and player contact details.</p>
+      <form id="login-form">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" required>
+        <button type="submit">Log in</button>
+        <div id="login-error" class="error" role="alert"></div>
+      </form>
+    </div>
+  </section>
+  <section id="data-view" hidden>
+    <div class="toolbar">
+      <div class="search">
+        <label for="search">Search name, email or phone</label>
+        <input id="search" type="search" placeholder="e.g. alex or 0412">
+      </div>
+      <button id="refresh" class="secondary" type="button">Refresh</button>
+      <a id="csv" class="button" href="/api/admin/scores.csv">Download CSV</a>
+    </div>
+    <p id="summary"></p>
+    <div class="card table-wrap">
+      <table>
+        <thead>
+          <tr><th>#</th><th>Name</th><th>Email</th><th>Phone</th><th>Score</th><th>Switches</th><th>Distance</th><th>Played</th><th></th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <button id="more" class="secondary" type="button" hidden>Load more</button>
+  </section>
+  <div id="notice" role="status" hidden></div>
+</main>
+<script src="./admin.js"></script>
+</body>
+</html>

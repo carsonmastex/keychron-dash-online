@@ -1,0 +1,25 @@
+{
+  // Keychron Dash online: static game + admin page (public/) and the /api Worker.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "keychron-dash-online",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "keychron-dash-online",
+      // Replace with the id printed by `npx wrangler d1 create keychron-dash-online`
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "observability": { "enabled": true }
+  // Secrets (set with `npx wrangler secret put <NAME>`, never committed):
+  //   ADMIN_PASSWORD  - password for /admin
+  //   SESSION_SECRET  - random string used to sign admin sessions and run tokens
+}
