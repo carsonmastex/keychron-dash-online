@@ -226,6 +226,8 @@ type AudioBus = {
   noise: AudioBuffer;
 };
 
+const PRIVACY_POLICY_URL = "https://mastex.com.au/policies/privacy-policy";
+
 const normalizePlayerName = (value: string) =>
   Array.from(value.trim().replace(/\s+/g, " ")).slice(0, 12).join("");
 
@@ -3838,7 +3840,12 @@ function PizzaDashGame() {
                         />
                         <span>I agree that Keychron and Mastex may contact me about this competition.</span>
                       </label>
-                      <small>Only your name and score are shown publicly. Email and phone are used to contact winners and are never published.</small>
+                      <small>
+                        Only your name and score are shown publicly. Email and phone are used to contact winners and are never published.{" "}
+                        <a href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">
+                          Privacy Policy
+                        </a>
+                      </small>
                       {saveError && <p className="name-entry-error">{saveError}</p>}
                     </form>
                   </div>
@@ -3975,6 +3982,9 @@ function PizzaDashGame() {
 
       <footer className="site-footer">
         <span>KEYCHRON × PAX AUS 2026</span>
+        <a href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">
+          PRIVACY POLICY
+        </a>
         <span>READY. SET. TYPE.</span>
       </footer>
     </main>
