@@ -226,7 +226,7 @@ type AudioBus = {
   noise: AudioBuffer;
 };
 
-const PRIVACY_POLICY_URL = "https://mastex.com.au/policies/privacy-policy";
+const PRIVACY_POLICY_URL = "https://keychron.com.au/policies/privacy-policy";
 
 const normalizePlayerName = (value: string) =>
   Array.from(value.trim().replace(/\s+/g, " ")).slice(0, 12).join("");
