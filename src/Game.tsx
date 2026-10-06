@@ -3134,7 +3134,13 @@ function PizzaDashGame() {
 
   useEffect(() => {
     if (mode !== "gameover" || gameOverView !== "entry") return;
-    const frame = window.requestAnimationFrame(() => nameInputRef.current?.focus());
+    // Inside an auto-height iframe on a phone, the host page scrolls the score
+    // entry into view, so focusing must not jump the page on its own.
+    const framed = document.documentElement.classList.contains("framed");
+    const frame = window.requestAnimationFrame(() => {
+      nameInputRef.current?.focus({ preventScroll: framed });
+      if (framed && window.innerWidth <= 680) window.dispatchEvent(new Event("keychron-dash:show-stage"));
+    });
     return () => window.cancelAnimationFrame(frame);
   }, [gameOverView, mode]);
 

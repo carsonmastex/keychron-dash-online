@@ -14,7 +14,15 @@ pages in `public/`, and scores live in a D1 database.
 
 ## Embedding on another site
 
-Use `?embed=1` for a compact layout that shows only the game and fills the
+**Full page, auto-height (keychron.com.au):** paste
+[`embed/keychron-page-snippet.html`](embed/keychron-page-snippet.html) into the
+page's HTML. The game reports its height to the host page, which sizes the
+iframe to match, so there is no scrolling inside the frame. On phones the host
+page scrolls to the score entry when a run ends. The host script only accepts
+messages from the game's origin; update `GAME_ORIGIN` and the iframe `src`
+together if the game moves to another domain.
+
+**Compact, fixed size:** use `?embed=1` to show only the game, filling the
 iframe (no heading, how-to-play or footer):
 
 ```html

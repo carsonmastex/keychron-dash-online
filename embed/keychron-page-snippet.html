@@ -1,0 +1,54 @@
+<!-- Keychron x PAX 2026 game: full page, auto-height (no scrolling inside the frame) -->
+<div class="keychron-dash-wrap">
+  <iframe
+    id="keychron-dash-frame"
+    src="https://keychron-dash-online.contact-352.workers.dev/"
+    title="Keychron x PAX 2026"
+    allow="autoplay; fullscreen"
+    loading="eager"
+    scrolling="no"></iframe>
+</div>
+
+<style>
+  .keychron-dash-wrap {
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  #keychron-dash-frame {
+    display: block;
+    width: 100%;
+    height: 1500px; /* fallback until the game reports its height */
+    border: 0;
+    overflow: hidden;
+  }
+
+  @media (min-width: 990px) {
+    #keychron-dash-frame {
+      height: 1300px;
+    }
+  }
+</style>
+
+<script>
+  (function () {
+    var GAME_ORIGIN = "https://keychron-dash-online.contact-352.workers.dev";
+    var frame = document.getElementById("keychron-dash-frame");
+    if (!frame) return;
+
+    window.addEventListener("message", function (event) {
+      if (event.origin !== GAME_ORIGIN || event.source !== frame.contentWindow) return;
+      var data = event.data || {};
+
+      if (data.type === "keychron-dash:height" && typeof data.height === "number") {
+        frame.style.height = Math.max(400, Math.min(data.height, 6000)) + "px";
+      }
+
+      if (data.type === "keychron-dash:scroll" && typeof data.top === "number") {
+        var top = frame.getBoundingClientRect().top + window.pageYOffset + data.top - 12;
+        window.scrollTo({ top: top, behavior: "smooth" });
+      }
+    });
+  })();
+</script>

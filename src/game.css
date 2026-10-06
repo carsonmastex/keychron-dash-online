@@ -1137,3 +1137,26 @@ html.embed .game-toolbar {
   .leaderboard-actions button { font-size: 14px; min-height: 44px; }
   .rank-note { font-size: 13px; }
 }
+
+/* ---------- Full page inside an auto-height iframe ---------- */
+html.framed,
+html.framed body,
+html.framed .site-shell {
+  min-height: 0;
+}
+
+/* On phones the score entry sits over the game area (the host page scrolls
+   it into view) instead of covering the whole, very tall iframe. */
+@media (max-width: 680px) {
+  html.framed .game-stage,
+  html.framed .screen-bezel:has(.result-overlay) {
+    overflow: visible;
+  }
+
+  html.framed .result-overlay {
+    bottom: auto;
+    border-radius: 12px;
+    min-height: 560px;
+    position: absolute;
+  }
+}
