@@ -1027,3 +1027,113 @@ button {
   outline: 3px solid var(--ink);
   outline-offset: 2px;
 }
+
+/* ---------- Embed mode (?embed=1): only the game, filling the iframe ---------- */
+html.embed,
+html.embed body {
+  background: #111317;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+html.embed body {
+  margin: 0;
+}
+
+html.embed #root,
+html.embed .site-shell {
+  height: 100%;
+  min-height: 0;
+}
+
+html.embed .site-shell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+html.embed .topbar,
+html.embed .game-heading,
+html.embed .controls-section,
+html.embed .site-footer {
+  display: none;
+}
+
+html.embed .game-stage {
+  border-radius: 0;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  max-width: none;
+  width: 100%;
+}
+
+/* Keep the 16:9 screen inside the frame's height, leaving room for the toolbar */
+html.embed .screen-bezel {
+  border-width: 6px;
+  border-radius: 12px;
+  margin: 0 auto;
+  max-width: calc((100vh - 120px) * 16 / 9);
+}
+
+html.embed .game-toolbar {
+  min-height: 0;
+  padding: 10px 12px;
+}
+
+@media (max-width: 680px) {
+  html.embed .screen-bezel {
+    max-width: calc((100vh - 230px) * 16 / 9);
+  }
+
+  html.embed .touch-panel {
+    padding: 0 10px 12px;
+  }
+
+  html.embed .touch-key {
+    min-height: 58px;
+  }
+}
+
+/* ---------- Phones: score entry and leaderboard cover the whole screen ---------- */
+@media (max-width: 680px) {
+  .result-overlay {
+    background: rgba(8, 10, 14, .94);
+    inset: 0;
+    overflow-y: auto;
+    padding: 14px;
+    position: fixed;
+    z-index: 60;
+  }
+
+  .result-card,
+  .result-card.leaderboard-card {
+    height: auto;
+    max-height: none;
+    min-height: 0;
+    padding: 16px 14px;
+    width: 100%;
+  }
+
+  .result-kicker { font-size: 11px; }
+  .score-entry-view h2, .leaderboard-heading h2 { font-size: 24px; }
+  .score-entry-view .final-score { font-size: 44px; }
+  .result-summary { font-size: 13px; }
+  .name-entry-form label { font-size: 14px; }
+  .name-entry-row { flex-wrap: wrap; }
+  .name-entry-row input { flex: 1 1 140px; font-size: 16px; min-height: 44px; }
+  .name-entry-row button { font-size: 14px; min-height: 44px; }
+  .consent-row { font-size: 13px !important; }
+  .name-entry-form small { font-size: 11px; }
+  .name-entry-error { font-size: 13px; }
+  .leaderboard-list { grid-template-rows: none; }
+  .leaderboard-list li { font-size: 14px; min-height: 36px; }
+  .leader-name { font-size: 15px; }
+  .leaderboard-list li > strong { font-size: 16px; }
+  .current-score-chip small { font-size: 11px; }
+  .current-score-chip strong { font-size: 20px; }
+  .leaderboard-actions button { font-size: 14px; min-height: 44px; }
+  .rank-note { font-size: 13px; }
+}

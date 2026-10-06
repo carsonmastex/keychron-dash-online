@@ -12,6 +12,18 @@ worldwide leaderboard and an admin page for player contact details.
 Runs on Cloudflare: a Worker (`worker/index.ts`) serves the API and the static
 pages in `public/`, and scores live in a D1 database.
 
+## Embedding on another site
+
+Use `?embed=1` for a compact layout that shows only the game and fills the
+iframe (no heading, how-to-play or footer):
+
+```html
+<iframe src="https://keychron-dash-online.contact-352.workers.dev/?embed=1"
+        allow="autoplay; fullscreen" title="Keychron x PAX 2026"></iframe>
+```
+
+On phones the score entry and leaderboard cover the whole frame.
+
 ## Anti-cheat (basic)
 
 Each run gets a signed start token from the server. A score is rejected if the
