@@ -26,7 +26,7 @@ const result = await build({
 
 const js = result.outputFiles[0].text.replace(/<\/script/gi, "<\\/script");
 const css = await readFile(join(root, "src", "game.css"), "utf8");
-const head = `<title>Keychron Dash</title>
+const head = `<title>Keychron x PAX 2026</title>
 <style>${css}</style>
 `;
 const content = `<div id="root"></div>
@@ -41,7 +41,7 @@ const page = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Keychron Dash: race through Melbourne to PAX Aus 2026 and top the worldwide leaderboard.">
+<meta name="description" content="Keychron x PAX 2026: race through Melbourne to PAX Aus and top the worldwide leaderboard.">
 ${head}</head>
 <body>
 ${content}</body>
