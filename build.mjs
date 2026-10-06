@@ -41,7 +41,7 @@ const page = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Keychron × PAX Aus 2026 booth game">
+<meta name="description" content="Keychron Dash: race through Melbourne to PAX Aus 2026 and top the worldwide leaderboard.">
 ${head}</head>
 <body>
 ${content}</body>
