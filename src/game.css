@@ -931,32 +931,6 @@ button {
     grid-column: auto;
   }
 
-  .touch-panel {
-    display: grid;
-    gap: 8px;
-    grid-template-columns: repeat(4, 1fr);
-    padding: 0 10px 42px;
-  }
-
-  .touch-key {
-    cursor: pointer;
-    font-size: 23px;
-    min-height: 70px;
-    touch-action: none;
-  }
-
-  .touch-key span {
-    display: block;
-    font-family: Arial, sans-serif;
-    font-size: 10px;
-  }
-
-  .jump-key {
-    background: var(--red);
-    border-color: var(--red-shadow);
-    color: var(--on-red);
-  }
-
   .controls-section {
     padding-bottom: 40px;
   }
@@ -1087,14 +1061,6 @@ html.embed .game-toolbar {
   html.embed .screen-bezel {
     max-width: calc((100vh - 230px) * 16 / 9);
   }
-
-  html.embed .touch-panel {
-    padding: 0 10px 12px;
-  }
-
-  html.embed .touch-key {
-    min-height: 58px;
-  }
 }
 
 /* ---------- Phones: score entry and leaderboard cover the whole screen ---------- */
@@ -1158,5 +1124,91 @@ html.framed .site-shell {
     border-radius: 12px;
     min-height: 560px;
     position: absolute;
+  }
+}
+
+/* ---------- Touch pad (phones, tablets): left thumb moves, right thumb slides/jumps ---------- */
+@media (pointer: coarse), (max-width: 680px) {
+  .touch-panel {
+    -webkit-touch-callout: none;
+    display: flex;
+    gap: 14px;
+    justify-content: space-between;
+    padding: 12px 12px 2px;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .touch-group {
+    display: flex;
+    flex: 1;
+    gap: 10px;
+    max-width: 320px;
+  }
+
+  .touch-key {
+    -webkit-tap-highlight-color: transparent;
+    cursor: pointer;
+    flex: 1;
+    font-size: 28px;
+    line-height: 1;
+    min-height: 74px;
+    padding: 6px 0;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .touch-key:active {
+    border-bottom-width: 2px;
+    transform: translateY(4px);
+  }
+
+  .touch-key span {
+    display: block;
+    font-family: Arial, sans-serif;
+    font-size: 11px;
+    margin-top: 4px;
+  }
+
+  .jump-key {
+    background: var(--red);
+    border-color: var(--red-shadow);
+    color: var(--on-red);
+  }
+
+  .game-toolbar button,
+  .game-canvas {
+    touch-action: manipulation;
+  }
+
+  /* Fullscreen and embed: leave room for the pad under the screen */
+  .game-stage:fullscreen .screen-bezel {
+    max-height: calc(100vh - 210px);
+  }
+
+  html.embed .screen-bezel {
+    max-width: calc((100vh - 215px) * 16 / 9);
+  }
+}
+
+/* Phones held sideways: shrink the screen so screen + pad fit the view */
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 600px) {
+  .game-stage .screen-bezel {
+    border-width: 6px;
+    margin: 0 auto;
+    max-width: calc((100svh - 104px) * 16 / 9);
+  }
+
+  .touch-panel {
+    padding-top: 8px;
+  }
+
+  .touch-group {
+    max-width: 260px;
+  }
+
+  .touch-key {
+    min-height: 64px;
   }
 }

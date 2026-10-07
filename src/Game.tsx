@@ -306,6 +306,10 @@ const overlaps = (
 // Large event keyboards are often numpad-style: NumLock toggles Numpad6's
 // event.key between "ArrowRight" and "6", so match event.code AND event.key
 // to stay reliable regardless of NumLock state.
+// Phones and tablets (no mouse): show the on-screen pad and "TAP" prompts
+const IS_TOUCH_DEVICE =
+  typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches === true;
+
 const isLeftKey = (event: KeyboardEvent) =>
   event.code === "ArrowLeft" || event.code === "Numpad4" || event.key === "ArrowLeft";
 const isRightKey = (event: KeyboardEvent) =>
@@ -2657,10 +2661,16 @@ function drawOverlay(
     ctx.fill();
     ctx.fillStyle = "#1b1d22";
     ctx.font = "900 29px 'Courier New', monospace";
-    ctx.fillText("PRESS ENTER TO START", WORLD_WIDTH / 2, 441);
+    ctx.fillText(IS_TOUCH_DEVICE ? "TAP HERE TO START" : "PRESS ENTER TO START", WORLD_WIDTH / 2, 441);
     ctx.fillStyle = "rgba(255,255,255,.74)";
     ctx.font = "700 17px Arial";
-    ctx.fillText("SPACE / ↑ jump    ↓ slide    ← → move", WORLD_WIDTH / 2, 520);
+    ctx.fillText(
+      IS_TOUCH_DEVICE
+        ? "Use the buttons below:  ← → move    ↓ slide    ↑ jump"
+        : "SPACE / ↑ jump    ↓ slide    ← → move",
+      WORLD_WIDTH / 2,
+      520,
+    );
   }
 
   if (mode === "paused") {
@@ -2670,7 +2680,7 @@ function drawOverlay(
     ctx.fillText("PAUSED", WORLD_WIDTH / 2, 310);
     ctx.fillStyle = "#ffd84e";
     ctx.font = "900 25px 'Courier New', monospace";
-    ctx.fillText("PRESS P TO CONTINUE", WORLD_WIDTH / 2, 365);
+    ctx.fillText(IS_TOUCH_DEVICE ? "TAP TO CONTINUE" : "PRESS P TO CONTINUE", WORLD_WIDTH / 2, 365);
   }
   ctx.textAlign = "left";
 }
@@ -2997,6 +3007,16 @@ function PizzaDashGame() {
     bus.music.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
   }, []);
 
+  // On phones/tablets, scroll so the screen and the touch pad fill the view.
+  // Inside an auto-height iframe the host page does the scrolling (main.tsx).
+  const bringStageIntoView = useCallback(() => {
+    if (document.documentElement.classList.contains("framed")) {
+      window.dispatchEvent(new Event("keychron-dash:show-stage"));
+    } else {
+      stageRef.current?.scrollIntoView({ block: "start" });
+    }
+  }, []);
+
   const startGame = useCallback(() => {
     const next = freshGame();
     gameRef.current = next;
@@ -3009,7 +3029,8 @@ function PizzaDashGame() {
     setHud({ score: 0, pizzas: 0, lives: 3, distance: 0 });
     changeMode("running");
     playSound("start");
-  }, [changeGameOverView, changeMode, playSound]);
+    if (IS_TOUCH_DEVICE) bringStageIntoView();
+  }, [bringStageIntoView, changeGameOverView, changeMode, playSound]);
 
   const saveScore = useCallback(async () => {
     if (modeRef.current !== "gameover" || gameOverViewRef.current !== "entry") return;
@@ -3108,8 +3129,13 @@ function PizzaDashGame() {
     event: ReactPointerEvent<HTMLButtonElement>,
   ) => {
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
     setControl(control, true);
+    try {
+      // Keep receiving this finger's "up" even if it slides off the button
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Capture can fail for synthetic or already-ended pointers; the button still works
+    }
   };
 
   // Load the board once for the BEST score, then keep it fresh only while the
@@ -3773,6 +3799,10 @@ function PizzaDashGame() {
             width={WORLD_WIDTH}
             height={WORLD_HEIGHT}
             aria-label="Game screen. Press Enter to start, Space or Up to jump, Down to slide, Left and Right to move."
+            onPointerDown={() => {
+              if (modeRef.current === "ready") startGame();
+              else if (modeRef.current === "paused") togglePause();
+            }}
           />
           {mode === "gameover" && (
             <div className="result-overlay" aria-live="polite">
@@ -3921,6 +3951,49 @@ function PizzaDashGame() {
           <div className="screen-corner corner-right" aria-hidden="true">PAX AUS 2026</div>
         </div>
 
+        <section className="touch-panel" aria-label="Touch controls">
+          <div className="touch-group">
+            <button
+              type="button"
+              className="touch-key"
+              aria-label="Move left"
+              onPointerDown={(event) => holdControl("left", event)}
+              onPointerUp={() => setControl("left", false)}
+              onPointerCancel={() => setControl("left", false)}
+              onLostPointerCapture={() => setControl("left", false)}
+              onContextMenu={(event) => event.preventDefault()}
+            >←<span>Left</span></button>
+            <button
+              type="button"
+              className="touch-key"
+              aria-label="Move right"
+              onPointerDown={(event) => holdControl("right", event)}
+              onPointerUp={() => setControl("right", false)}
+              onPointerCancel={() => setControl("right", false)}
+              onLostPointerCapture={() => setControl("right", false)}
+              onContextMenu={(event) => event.preventDefault()}
+            >→<span>Right</span></button>
+          </div>
+          <div className="touch-group">
+            <button
+              type="button"
+              className="touch-key"
+              aria-label="Slide"
+              onPointerDown={(event) => holdControl("down", event)}
+              onPointerUp={() => setControl("down", false)}
+              onPointerCancel={() => setControl("down", false)}
+              onLostPointerCapture={() => setControl("down", false)}
+              onContextMenu={(event) => event.preventDefault()}
+            >↓<span>Slide</span></button>
+            <button
+              type="button"
+              className="touch-key jump-key"
+              aria-label="Jump"
+              onPointerDown={(event) => { event.preventDefault(); jump(); }}
+              onContextMenu={(event) => event.preventDefault()}
+            >↑<span>Jump</span></button>
+          </div>
+        </section>
         <div className="game-toolbar">
           <div className="live-stats" aria-live="off">
             <span><small>SCORE</small>{String(hud.score).padStart(5, "0")}</span>
@@ -3958,34 +4031,6 @@ function PizzaDashGame() {
         </div>
       </section>
 
-      <section className="touch-panel" aria-label="Touch controls">
-        <button
-          type="button"
-          className="touch-key"
-          onPointerDown={(event) => holdControl("left", event)}
-          onPointerUp={() => setControl("left", false)}
-          onPointerCancel={() => setControl("left", false)}
-        >←<span>Left</span></button>
-        <button
-          type="button"
-          className="touch-key jump-key"
-          onPointerDown={(event) => { event.preventDefault(); jump(); }}
-        >↑<span>Jump</span></button>
-        <button
-          type="button"
-          className="touch-key"
-          onPointerDown={(event) => holdControl("down", event)}
-          onPointerUp={() => setControl("down", false)}
-          onPointerCancel={() => setControl("down", false)}
-        >↓<span>Slide</span></button>
-        <button
-          type="button"
-          className="touch-key"
-          onPointerDown={(event) => holdControl("right", event)}
-          onPointerUp={() => setControl("right", false)}
-          onPointerCancel={() => setControl("right", false)}
-        >→<span>Right</span></button>
-      </section>
 
       <footer className="site-footer">
         <span>KEYCHRON × PAX AUS 2026</span>
