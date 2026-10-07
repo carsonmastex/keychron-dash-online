@@ -758,7 +758,23 @@ button {
 
 .key-cluster {
   display: flex;
+  flex-shrink: 0;
   gap: 4px;
+}
+
+/* Key caps keep their width; the description text wraps instead */
+.guide-item kbd {
+  flex-shrink: 0;
+}
+
+/* When a card is narrow, the text moves under the keys instead of squeezing */
+.guide-item {
+  flex-wrap: wrap;
+}
+
+.guide-item > div:not(.key-cluster) {
+  flex: 1 1 150px;
+  min-width: 150px;
 }
 
 .key-cluster kbd {
