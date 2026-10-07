@@ -62,4 +62,23 @@ await build({
 });
 await writeFile(join(root, "public", "admin", "index.html"), await readFile(join(root, "admin", "index.html"), "utf8"));
 
+// Response headers for the static pages (Cloudflare static assets `_headers`).
+// The admin page can't be framed by other sites or indexed by search engines;
+// the game page stays frameable for the keychron.com.au embed.
+await writeFile(
+  join(root, "public", "_headers"),
+  `/admin/*
+  X-Frame-Options: DENY
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Robots-Tag: noindex, nofollow
+  Referrer-Policy: no-referrer
+  X-Content-Type-Options: nosniff
+  Cache-Control: no-store
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+`,
+);
+
 console.log(`public/index.html (${(page.length / 1024).toFixed(0)} KB), public/admin/`);
