@@ -3007,16 +3007,6 @@ function PizzaDashGame() {
     bus.music.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
   }, []);
 
-  // On phones/tablets, scroll so the screen and the touch pad fill the view.
-  // Inside an auto-height iframe the host page does the scrolling (main.tsx).
-  const bringStageIntoView = useCallback(() => {
-    if (document.documentElement.classList.contains("framed")) {
-      window.dispatchEvent(new Event("keychron-dash:show-stage"));
-    } else {
-      stageRef.current?.scrollIntoView({ block: "start" });
-    }
-  }, []);
-
   const startGame = useCallback(() => {
     const next = freshGame();
     gameRef.current = next;
@@ -3029,8 +3019,7 @@ function PizzaDashGame() {
     setHud({ score: 0, pizzas: 0, lives: 3, distance: 0 });
     changeMode("running");
     playSound("start");
-    if (IS_TOUCH_DEVICE) bringStageIntoView();
-  }, [bringStageIntoView, changeGameOverView, changeMode, playSound]);
+  }, [changeGameOverView, changeMode, playSound]);
 
   const saveScore = useCallback(async () => {
     if (modeRef.current !== "gameover" || gameOverViewRef.current !== "entry") return;
