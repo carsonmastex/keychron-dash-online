@@ -24,7 +24,7 @@ const TOP_N = 10;
 const SESSION_HOURS = 12;
 const COOKIE = "kd_admin";
 // Game constants used for plausibility checks (keep in sync with src/Game.tsx)
-const MAX_SPEED = 23.1;
+const MAX_SPEED = 14.8; // keep in sync with src/Game.tsx
 const METRES_PER_SPEED_SECOND = 1.25;
 const SUBMIT_LIMIT = { count: 5, minutes: 10 };
 const LOGIN_FAIL_LIMIT = { count: 8, minutes: 15 };

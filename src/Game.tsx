@@ -22,25 +22,23 @@ const WORLD_HEIGHT = 720;
 const GROUND_Y = 570;
 
 // Booth difficulty: runs should last about a minute so the queue keeps moving.
-// (Original Taiwan values in brackets.)
-// Carson (2026-10-05): start at 7.7, add 10% of the start speed every 50 m
-// (by distance, not time), reaching top speed at 1000 m: 7.7 + 20 x 0.77 = 23.1.
-// [Taiwan: start 6.6, smooth +1 every 480 m, max 14.8]
-const START_SPEED = 7.7;
-const SPEED_STEP = START_SPEED * 0.1;
-const MAX_SPEED = START_SPEED + SPEED_STEP * 20; // 23.1 at 1000 m
-const SPEED_STEP_METRES = 50;
-// Obstacle density unchanged from the earlier booth tuning (boss asked only for speed)
-const OBSTACLE_GAP_BASE = 1.15; // seconds between obstacles at the start [1.72]
-const OBSTACLE_GAP_RANDOM = 0.45; // [0.62]
-const OBSTACLE_RAMP_METRES = 600; // gap shrinks by 1s over this distance [2000]
-const OBSTACLE_GAP_MIN_CUT = 0.3; // most the gap can shrink [0.65]
+// Online version (Carson, 2026-10-07): same difficulty as the Taiwan Pizza Dash.
+// The booth version (keychron-pax) keeps its own faster tuning.
+// Speed rises smoothly by distance: +1 every 480 m, from 6.6 up to 14.8 (at ~3.9 km).
+const START_SPEED = 6.6;
+const MAX_SPEED = 14.8;
+const SPEED_GAIN_METRES = 480;
+const FIRST_OBSTACLE_SECONDS = 2.3;
+const OBSTACLE_GAP_BASE = 1.72; // seconds between obstacles at the start
+const OBSTACLE_GAP_RANDOM = 0.62;
+const OBSTACLE_RAMP_METRES = 2000; // gap shrinks by 1s over this distance
+const OBSTACLE_GAP_MIN_CUT = 0.65; // most the gap can shrink
 // Fairness: clear road (in seconds of travel) required between the end of one
 // obstacle and the start of the next. A perfect bot needs up to 0.7 s at top
 // speed (cone then boxes); the extra is reaction time for real players.
 const MIN_CLEAR_SECONDS = 0.85;
-const HIT_INVINCIBLE_SECONDS = 1.1; // [1.35]
-const KEYCHRON_SHIELD_SECONDS = 2.2; // [3.2]
+const HIT_INVINCIBLE_SECONDS = 1.35;
+const KEYCHRON_SHIELD_SECONDS = 3.2;
 
 type GameMode = "ready" | "running" | "paused" | "gameover";
 type ObstacleKind =
@@ -257,7 +255,7 @@ const freshGame = (): GameState => ({
   speed: START_SPEED,
   elapsed: 0,
   scroll: 0,
-  obstacleTimer: 1.8,
+  obstacleTimer: FIRST_OBSTACLE_SECONDS,
   pizzaTimer: 0.8,
   keycapTimer: 6 + Math.random() * 3,
   keychronCelebration: 0,
@@ -3387,10 +3385,7 @@ function PizzaDashGame() {
       const game = gameRef.current;
       const player = game.player;
       game.elapsed += dt;
-      game.speed = Math.min(
-        MAX_SPEED,
-        START_SPEED + Math.floor(game.distance / SPEED_STEP_METRES) * SPEED_STEP,
-      );
+      game.speed = Math.min(MAX_SPEED, START_SPEED + game.distance / SPEED_GAIN_METRES);
       const worldMove = game.speed * 58 * dt;
       game.scroll += worldMove;
       game.distance += game.speed * dt * 1.25;
