@@ -306,6 +306,17 @@ const overlaps = (
 // Large event keyboards are often numpad-style: NumLock toggles Numpad6's
 // event.key between "ArrowRight" and "6", so match event.code AND event.key
 // to stay reliable regardless of NumLock state.
+// Game time comes from our own copy of the clock, taken when the page loads,
+// not from the timestamp the browser hands to requestAnimationFrame. Scripts
+// pasted into the console later can't slow the game down by faking it.
+const gameClock = performance.now.bind(performance);
+// Each frame simulates the real time that passed, in steps of at most
+// MAX_STEP_SECONDS, so a low frame rate (or a throttled one) doesn't turn
+// into slow motion. Longer stalls are capped so a hiccup can't teleport
+// the rider into an obstacle.
+const MAX_STEP_SECONDS = 0.034;
+const MAX_CATCH_UP_SECONDS = 0.25;
+
 // Phones and tablets (no mouse): show the on-screen pad and "TAP" prompts
 const IS_TOUCH_DEVICE =
   typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches === true;
@@ -3647,7 +3658,7 @@ function PizzaDashGame() {
     };
     ctx.imageSmoothingEnabled = false;
     let frameId = 0;
-    let previous = performance.now();
+    let previous = gameClock();
     // FPS meter for checking the booth computer: open the link with #fps,
     // or press the ` key (left of 1) to toggle it.
     let showFps = window.location.hash === "#fps";
@@ -4088,9 +4099,10 @@ function PizzaDashGame() {
       }
     };
 
-    const loop = (now: number) => {
+    const loop = () => {
+      const now = gameClock();
       const frameMs = now - previous;
-      const dt = Math.min(frameMs / 1000, 0.034);
+      const dt = Math.min(frameMs / 1000, MAX_STEP_SECONDS);
       previous = now;
       fpsFrames += 1;
       fpsWorst = Math.max(fpsWorst, frameMs);
@@ -4101,8 +4113,14 @@ function PizzaDashGame() {
         fpsWorst = 0;
         fpsWindowStart = now;
       }
-      if (modeRef.current === "running") update(dt, now);
-      else if (modeRef.current === "gameover") {
+      if (modeRef.current === "running") {
+        let remaining = Math.min(frameMs / 1000, MAX_CATCH_UP_SECONDS);
+        while (remaining > 0 && modeRef.current === "running") {
+          const step = Math.min(remaining, MAX_STEP_SECONDS);
+          update(step, now);
+          remaining -= step;
+        }
+      } else if (modeRef.current === "gameover") {
         gameRef.current.shake = Math.max(0, gameRef.current.shake - dt);
       }
       render();
