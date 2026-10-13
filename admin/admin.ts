@@ -10,6 +10,9 @@ type Row = {
   switches: number;
   distance: number;
   createdAt: string;
+  durationS: number | null;
+  minGameS: number | null;
+  flag: string | null;
 };
 
 const PAGE = 100;
@@ -55,6 +58,24 @@ function cell(text: string, className = "") {
   return td;
 }
 
+const formatMinutes = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, "0")}`;
+
+// Real time the run took vs the game time its distance needs. "Check" means
+// it took far longer (long pauses, or the game was slowed down).
+function timeCell(row: Row) {
+  if (row.durationS == null || row.minGameS == null) return cell("—", "muted");
+  const td = cell(`${formatMinutes(row.durationS)} / ${formatMinutes(row.minGameS)}`, "num");
+  td.title = "Real time taken / minimum game time for this distance";
+  if (row.flag === "slow") {
+    const badge = document.createElement("span");
+    badge.className = "flag";
+    badge.textContent = "Check";
+    badge.title = "Took much longer than the game needs: long pauses, or the game may have been slowed down";
+    td.append(" ", badge);
+  }
+  return td;
+}
+
 function renderRows(rows: Row[], append: boolean) {
   if (!append) tbody.replaceChildren();
   rows.forEach((row, i) => {
@@ -68,6 +89,7 @@ function renderRows(rows: Row[], append: boolean) {
       cell(String(row.switches), "num"),
       cell(`${row.distance} m`, "num"),
       cell(formatDate(row.createdAt)),
+      timeCell(row),
     );
     const actions = document.createElement("td");
     const del = document.createElement("button");
@@ -82,7 +104,7 @@ function renderRows(rows: Row[], append: boolean) {
   if (!tbody.children.length) {
     const tr = document.createElement("tr");
     const td = cell(search.value ? "No scores match this search." : "No scores yet. They will appear here as people play.", "empty");
-    td.colSpan = 9;
+    td.colSpan = 10;
     tr.append(td);
     tbody.append(tr);
   }

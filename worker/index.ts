@@ -24,8 +24,16 @@ const TOP_N = 10;
 const SESSION_HOURS = 12;
 const COOKIE = "kd_admin";
 // Game constants used for plausibility checks (keep in sync with src/Game.tsx)
-const MAX_SPEED = 14.8; // keep in sync with src/Game.tsx
+const START_SPEED = 6.6;
+const MAX_SPEED = 14.8;
+const SPEED_GAIN_METRES = 480; // speed = START + distance / 480, up to MAX
 const METRES_PER_SPEED_SECOND = 1.25;
+// Real runs (557 of them, Oct 2026) never beat 1.52 switches or 1,051 points
+// per second of game time; these ceilings leave ~40% headroom.
+const MAX_SWITCHES_PER_GAME_SECOND = 2;
+const MAX_POINTS_PER_GAME_SECOND = 1500;
+// A run that takes this much longer than its game time is flagged for review
+const SLOW_RUN_GRACE_SECONDS = 120;
 const SUBMIT_LIMIT = { count: 5, minutes: 10 };
 const LOGIN_FAIL_LIMIT = { count: 8, minutes: 15 };
 
@@ -97,6 +105,17 @@ const cleanName = (value: unknown) =>
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,24}$/;
 const PHONE = /^\+?[0-9 ()-]{6,20}$/;
 
+/**
+ * Seconds of game time needed to cover `distance`. Speed depends only on
+ * distance, so this is exact: the game can't get there any faster.
+ */
+function minGameSeconds(distance: number) {
+  const k = SPEED_GAIN_METRES / METRES_PER_SPEED_SECOND;
+  const topSpeedAt = (MAX_SPEED - START_SPEED) * SPEED_GAIN_METRES;
+  if (distance <= topSpeedAt) return k * Math.log((START_SPEED + distance / SPEED_GAIN_METRES) / START_SPEED);
+  return k * Math.log(MAX_SPEED / START_SPEED) + (distance - topSpeedAt) / (MAX_SPEED * METRES_PER_SPEED_SECOND);
+}
+
 /** Loose ceiling on score for a run, from the game's scoring rules. */
 function plausibleMaxScore(distance: number, switches: number) {
   // movement 3.2/m, near-miss bonuses, switch combos, keycaps and keyboard bonuses
@@ -130,10 +149,16 @@ async function handleSubmit(request: Request, env: Env, ctx: ExecutionContext) {
   const run = await readRunToken(env, body.runToken);
   if (!run) return fail(400, "This game could not be verified. Please play again.");
   const elapsedSec = (Date.now() - run.start) / 1000;
-  const maxDistance = elapsedSec * MAX_SPEED * METRES_PER_SPEED_SECOND * 1.1 + 20;
-  if (elapsedSec > 3 * 3600 || distance > maxDistance || switches > distance * 0.6 + 10 || score > plausibleMaxScore(distance, switches)) {
+  const gameSec = minGameSeconds(distance);
+  const tooFast = gameSec > elapsedSec * 1.02 + 5; // finished before the game could have
+  const tooRich =
+    switches > gameSec * MAX_SWITCHES_PER_GAME_SECOND + 15 ||
+    score > gameSec * MAX_POINTS_PER_GAME_SECOND + 15000 ||
+    score > plausibleMaxScore(distance, switches);
+  if (elapsedSec > 3 * 3600 || tooFast || tooRich) {
     return fail(400, "This score could not be verified. Please play again.");
   }
+  const flag = elapsedSec > gameSec * 1.05 + SLOW_RUN_GRACE_SECONDS ? "slow" : null;
 
   const ip = await ipHash(request, env);
   const recent = await env.DB.prepare("SELECT COUNT(*) AS n FROM scores WHERE ip_hash = ? AND created_at > ?")
@@ -144,9 +169,12 @@ async function handleSubmit(request: Request, env: Env, ctx: ExecutionContext) {
   const now = new Date().toISOString();
   try {
     const row = await env.DB.prepare(
-      "INSERT INTO scores (name, email, phone, score, switches, distance, run_id, ip_hash, consent_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
+      "INSERT INTO scores (name, email, phone, score, switches, distance, run_id, ip_hash, consent_at, created_at, run_started_at, duration_s, min_game_s, flag) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
     )
-      .bind(name, email, phone, score, switches, distance, run.nonce, ip, now, now)
+      .bind(
+        name, email, phone, score, switches, distance, run.nonce, ip, now, now,
+        new Date(run.start).toISOString(), Math.round(elapsedSec), Math.round(gameSec), flag,
+      )
       .first<{ id: number }>();
     const above = await env.DB.prepare("SELECT COUNT(*) AS n FROM scores WHERE score > ?").bind(score).first<{ n: number }>();
     await invalidateLeaderboard(ctx);
@@ -240,7 +268,7 @@ async function handleAdminScores(url: URL, env: Env) {
   const { where, args } = adminQuery(url);
   const total = await env.DB.prepare(`SELECT COUNT(*) AS n FROM scores ${where}`).bind(...args).first<{ n: number }>();
   const { results } = await env.DB.prepare(
-    `SELECT id, name, email, phone, score, switches, distance, created_at AS createdAt FROM scores ${where} ORDER BY score DESC, id ASC LIMIT ${limit} OFFSET ${offset}`,
+    `SELECT id, name, email, phone, score, switches, distance, created_at AS createdAt, duration_s AS durationS, min_game_s AS minGameS, flag FROM scores ${where} ORDER BY score DESC, id ASC LIMIT ${limit} OFFSET ${offset}`,
   )
     .bind(...args)
     .all();
@@ -256,13 +284,19 @@ const csvCell = (value: unknown) => {
 async function handleCsv(url: URL, env: Env) {
   const { where, args } = adminQuery(url);
   const { results } = await env.DB.prepare(
-    `SELECT id, name, email, phone, score, switches, distance, created_at FROM scores ${where} ORDER BY score DESC, id ASC`,
+    `SELECT id, name, email, phone, score, switches, distance, created_at, duration_s, min_game_s, flag FROM scores ${where} ORDER BY score DESC, id ASC`,
   )
     .bind(...args)
     .all();
-  const header = ["rank", "name", "email", "phone", "score", "switches", "distance_m", "played_at_utc"];
+  const header = [
+    "rank", "name", "email", "phone", "score", "switches", "distance_m", "played_at_utc",
+    "real_time_s", "min_game_time_s", "flag",
+  ];
   const lines = results.map((r, i) =>
-    [i + 1, r.name, r.email, r.phone, r.score, r.switches, r.distance, r.created_at].map(csvCell).join(","),
+    [
+      i + 1, r.name, r.email, r.phone, r.score, r.switches, r.distance, r.created_at,
+      r.duration_s, r.min_game_s, r.flag,
+    ].map(csvCell).join(","),
   );
   return new Response("﻿" + [header.join(","), ...lines].join("\n"), {
     headers: {

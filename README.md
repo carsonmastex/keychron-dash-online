@@ -34,12 +34,25 @@ On phones the score entry and leaderboard cover the whole frame.
 
 ## Anti-cheat (basic)
 
-Each run gets a signed start token from the server. A score is rejected if the
-token is missing, forged or reused, if the distance is impossible for the time
-played, or if the score is far above what the run could earn. Each device can
-save at most 5 scores per 10 minutes, and admin logins are rate limited.
-A determined cheater can still fake a plausible score, so check winners by
-hand before awarding prizes.
+- **Clock:** the game times itself with its own copy of `performance.now`
+  taken at page load and simulates the real time that passed each frame,
+  so console scripts that fake animation timestamps or throttle the frame
+  rate can't slow the game down.
+- **Run token:** each run gets a signed start time from the server; one save
+  per run.
+- **Time check:** speed depends only on distance, so the minimum game time
+  for a distance is exact. A score that arrives sooner than that is
+  rejected. One that took more than 2 minutes (+5%) longer is saved but
+  flagged "Check" in the admin page (long pauses, or a slowed-down game).
+- **Ceilings:** at most 2 switches and 1,500 points per second of game time
+  (real runs peak at about 1.5 and 1,050).
+- **Rate limit:** each device can save at most 5 scores per 10 minutes, and
+  admin logins are rate limited.
+
+The browser still reports the score, so someone could submit a believable
+fake if they wait out the run time. Check winners by hand (video or a
+supervised run) before awarding prizes. Scores saved before 13 Oct 2026
+have no timing data.
 
 ## Local development
 
