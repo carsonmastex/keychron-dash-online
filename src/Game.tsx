@@ -321,6 +321,9 @@ const MAX_CATCH_UP_SECONDS = 0.25;
 const IS_TOUCH_DEVICE =
   typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches === true;
 
+// Two presses of R within this window restart a run
+const RESTART_DOUBLE_PRESS_MS = 500;
+
 const isLeftKey = (event: KeyboardEvent) =>
   event.code === "ArrowLeft" || event.code === "Numpad4" || event.key === "ArrowLeft";
 const isRightKey = (event: KeyboardEvent) =>
@@ -3581,6 +3584,7 @@ function PizzaDashGame() {
   );
 
   useEffect(() => {
+    let lastRestartKeyAt = 0;
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") return;
@@ -3606,8 +3610,21 @@ function PizzaDashGame() {
       if (isRightKey(event)) keysRef.current.right = true;
       if (isDownKey(event)) keysRef.current.down = true;
       if (event.code === "KeyP" && !event.repeat) togglePause();
-      // No "R to restart" shortcut: players type K-E-Y-C-H-R-O-N on the keyboard
-      // while playing, and the R wiped their run. Use the Restart button instead.
+      // Restart needs R pressed twice quickly: players type K-E-Y-C-H-R-O-N on
+      // the keyboard while playing, and a single R used to wipe their run.
+      if (
+        event.code === "KeyR" &&
+        !event.repeat &&
+        (modeRef.current === "running" || modeRef.current === "paused")
+      ) {
+        const now = performance.now();
+        if (now - lastRestartKeyAt < RESTART_DOUBLE_PRESS_MS) {
+          lastRestartKeyAt = 0;
+          startGame();
+        } else {
+          lastRestartKeyAt = now;
+        }
+      }
       if (event.code === "KeyF" && !event.repeat) void toggleFullscreen();
     };
     const onKeyUp = (event: KeyboardEvent) => {
