@@ -3606,13 +3606,8 @@ function PizzaDashGame() {
       if (isRightKey(event)) keysRef.current.right = true;
       if (isDownKey(event)) keysRef.current.down = true;
       if (event.code === "KeyP" && !event.repeat) togglePause();
-      if (
-        event.code === "KeyR" &&
-        !event.repeat &&
-        (modeRef.current === "running" || modeRef.current === "paused")
-      ) {
-        startGame();
-      }
+      // No "R to restart" shortcut: players type K-E-Y-C-H-R-O-N on the keyboard
+      // while playing, and the R wiped their run. Use the Restart button instead.
       if (event.code === "KeyF" && !event.repeat) void toggleFullscreen();
     };
     const onKeyUp = (event: KeyboardEvent) => {
