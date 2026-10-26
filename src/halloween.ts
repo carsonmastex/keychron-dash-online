@@ -1862,23 +1862,27 @@ export function drawCurseBanner(ctx: CanvasRenderingContext2D, label: string, se
   ctx.restore();
 }
 
-/** Mirror curse: an "L/R SWAPPED" sign with the seconds left, bobbing over the rider's head. */
-export function drawSwappedSign(ctx: CanvasRenderingContext2D, cx: number, y: number, elapsed: number, seconds: number) {
+/** Small sign bobbing over the rider's head (curses, broom landing). */
+export function drawRiderSign(ctx: CanvasRenderingContext2D, cx: number, y: number, elapsed: number, text: string, color: string) {
   ctx.save();
   ctx.translate(cx, y + Math.sin(elapsed * 6) * 4);
   ctx.font = "900 16px 'Courier New', monospace";
-  const text = `L/R SWAPPED ${Math.ceil(seconds)}s`;
   const w = Math.ceil(ctx.measureText(text).width) + 24;
-  ctx.fillStyle = "rgba(74,31,42,.95)";
+  ctx.fillStyle = "rgba(21,10,34,.95)";
   roundedRect(ctx, -w / 2, -18, w, 32, 10);
   ctx.fill();
-  ctx.strokeStyle = "#ff6b8a";
+  ctx.strokeStyle = color;
   ctx.lineWidth = 3;
   ctx.stroke();
-  ctx.fillStyle = "#ffd0da";
+  ctx.fillStyle = color;
   ctx.textAlign = "center";
   ctx.fillText(text, 0, 4);
   ctx.restore();
+}
+
+/** Mirror curse: an "L/R SWAPPED" sign with the seconds left. */
+export function drawSwappedSign(ctx: CanvasRenderingContext2D, cx: number, y: number, elapsed: number, seconds: number) {
+  drawRiderSign(ctx, cx, y, elapsed, `L/R SWAPPED ${Math.ceil(seconds)}s`, "#ff6b8a");
 }
 
 /** Fog trick: drifting fog over the street (thinner near the rider so play stays fair). */

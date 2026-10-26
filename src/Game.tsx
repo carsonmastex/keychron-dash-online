@@ -26,6 +26,7 @@ import {
   drawBossHud,
   drawCurseBanner,
   drawSwappedSign,
+  drawRiderSign,
   makePumpkinKeychronLogo,
   drawDoor,
   drawDoorResult,
@@ -126,6 +127,10 @@ const HAUNTED_EVERY_METRES = 500;
 const HAUNTED_SECONDS = 10;
 const HAUNTED_POINTS_MULTIPLIER = 2;
 const BROOM_HEIGHT = 150; // px above the road while flying
+const BROOM_RISE_SECONDS = 0.35;
+const BROOM_FALL_SECONDS = 0.8; // gentle glide back down when the broom runs out
+const BROOM_LANDING_GRACE = 1.8; // can't be hit while gliding down and just after landing
+const BROOM_WARNING_SECONDS = 1.5; // "LANDING" sign before the broom runs out
 const MAGNET_RADIUS = 300;
 const GHOST_PASS_POINTS = 25;
 // Stomp: land on these from above to smash them and bounce
@@ -4164,8 +4169,16 @@ function PizzaDashGame() {
 
   const jump = useCallback(() => {
     if (modeRef.current !== "running") return;
-    if (HALLOWEEN && gameRef.current.broomLift > 0) return;
     const player = gameRef.current.player;
+    if (HALLOWEEN && gameRef.current.broomLift > 0) {
+      if (gameRef.current.activePower?.kind === "broom") return; // still flying
+      // Gliding down after the broom: jump straight from the glide
+      gameRef.current.broomLift = 0;
+      player.grounded = false;
+      player.velocityY = -900;
+      playSound("jump");
+      return;
+    }
     if (player.grounded) {
       if (player.sliding) {
         player.sliding = false;
@@ -4629,7 +4642,7 @@ function PizzaDashGame() {
         // Broom: ease up to flying height, hold, then ease back down to the road
         const flying = game.activePower?.kind === "broom";
         const liftBefore = game.broomLift;
-        game.broomLift = clamp(game.broomLift + (flying ? dt : -dt) / 0.35, 0, 1);
+        game.broomLift = clamp(game.broomLift + (flying ? dt / BROOM_RISE_SECONDS : -dt / BROOM_FALL_SECONDS), 0, 1);
         if (liftBefore > 0 && game.broomLift === 0) player.y = GROUND_Y - player.height; // touch down exactly
         if (game.broomLift > 0) {
           game.onPlatform = null;
@@ -4642,7 +4655,11 @@ function PizzaDashGame() {
         }
         if (game.activePower) {
           game.activePower.timer -= dt;
-          if (game.activePower.timer <= 0) game.activePower = null;
+          if (game.activePower.timer <= 0) {
+            // Broom over: glide down safely (no hits while landing)
+            if (game.activePower.kind === "broom") player.invincible = Math.max(player.invincible, BROOM_LANDING_GRACE);
+            game.activePower = null;
+          }
         }
         game.pumpkinShield = Math.max(0, game.pumpkinShield - dt);
         const wasHaunted = game.haunted > 0;
@@ -5402,6 +5419,8 @@ function PizzaDashGame() {
       }
       if (HALLOWEEN && game.curse?.kind === "mirror") {
         drawSwappedSign(ctx, game.player.x + 76, game.player.y - 40, game.elapsed, game.curse.timer);
+      } else if (HALLOWEEN && game.activePower?.kind === "broom" && game.activePower.timer < BROOM_WARNING_SECONDS) {
+        drawRiderSign(ctx, game.player.x + 76, game.player.y - 40, game.elapsed, `LANDING ${Math.ceil(game.activePower.timer)}s`, "#ffd84e");
       }
       if (HALLOWEEN) {
         game.projectiles.forEach((shot) => drawProjectile(ctx, shot));
