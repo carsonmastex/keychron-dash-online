@@ -3990,10 +3990,11 @@ function PizzaDashGame() {
       } else if (effect === "grind") {
         scheduleNoise(bus, sfx, now, 0.15, 0.03, 4200, "bandpass", 1.6);
       } else if (effect === "thunder") {
-        // Real thunder: a sharp crack, then a rolling rumble that swells a few
-        // times while its tone sinks, lasting about 3 seconds
-        scheduleNoise(bus, sfx, now, 0.3, 0.14, 1800, "highpass", 0.5, 0.004);
-        scheduleNoise(bus, sfx, now + 0.06, 0.25, 0.09, 1200, "highpass", 0.5, 0.004);
+        // Thunder: a deep boom, then a rolling rumble that swells a few times
+        // while its tone sinks, about 3 seconds. Low frequencies only, with soft
+        // starts: the old sharp high "crack" (two bursts 0.06 s apart) was heard
+        // as a high-pitched "da-da" click.
+        scheduleNoise(bus, sfx, now, 0.7, 0.16, 380, "lowpass", 0.6, 0.03);
         const source = context.createBufferSource();
         const filter = context.createBiquadFilter();
         const envelope = context.createGain();
@@ -4002,8 +4003,8 @@ function PizzaDashGame() {
         source.playbackRate.value = 0.6;
         filter.type = "lowpass";
         filter.Q.value = 0.9;
-        filter.frequency.setValueAtTime(900, now);
-        filter.frequency.exponentialRampToValueAtTime(140, now + 3);
+        filter.frequency.setValueAtTime(520, now);
+        filter.frequency.exponentialRampToValueAtTime(120, now + 3);
         envelope.gain.setValueAtTime(0.0001, now);
         // Peak kept moderate so the master compressor doesn't duck the music
         // and then "pump" it back in little bursts after the thunder
