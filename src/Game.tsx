@@ -34,6 +34,7 @@ import {
   drawRail,
   drawRooftop,
   drawMissionHud,
+  drawBalanceMeter,
   type Mission,
   type MissionKind,
   type Platform,
@@ -153,7 +154,10 @@ const PLATFORM_GAP_MIN = 10;
 const PLATFORM_GAP_RANDOM = 6;
 const RAIL_TOP = GROUND_Y - 118; // clears the tallest jump obstacle (boxes, 104)
 const ROOF_TOP = GROUND_Y - 150;
-const GRIND_POINTS_PER_SECOND = 80;
+const GRIND_POINTS_PER_SECOND = 80; // x1, x2, x3 as you stay balanced
+const GRIND_LEVEL_UP_SECONDS = 1.1; // time in the green to go up a level
+const GAP_POINTS = 250;
+const TRICK_NAMES: Record<string, string> = { ollie: "OLLIE", kickflip: "KICKFLIP", shuvit: "360 SHOVE-IT", grab: "INDY GRAB" };
 // While a rail or rooftop is around, only ground obstacles spawn (nothing at head height up there)
 const OVERHEAD_KINDS = new Set<ObstacleKind>(["sign", "banner", "plane", "drone", "bats"]);
 // Missions
@@ -342,6 +346,12 @@ type GameState = {
   grindPoints: number; // points from the current grind (shown when it ends)
   mission: Mission;
   missionFlash: number; // "MISSION COMPLETE" time left; the next mission starts after
+  grindBalance: number; // -1 .. 1; fall off the rail at either end
+  grindDrift: number;
+  grindLevel: number; // points multiplier for staying balanced: 1, 2, 3
+  grindSteady: number; // seconds balanced in the green
+  grindSoundTimer: number;
+  jumpedFromRoof: number | null; // roof id we jumped from (for the gap bonus)
 };
 
 type Hud = {
@@ -375,7 +385,8 @@ type SoundEffect =
   | "boss"
   | "treat"
   | "trick"
-  | "thunder";
+  | "thunder"
+  | "grind";
 
 type AudioBus = {
   context: AudioContext;
@@ -459,6 +470,12 @@ const freshGame = (): GameState => ({
   grindPoints: 0,
   mission: makeMission(1),
   missionFlash: 0,
+  grindBalance: 0,
+  grindDrift: 0,
+  grindLevel: 1,
+  grindSteady: 0,
+  grindSoundTimer: 0,
+  jumpedFromRoof: null,
 });
 
 const clamp = (value: number, min: number, max: number) =>
@@ -2078,7 +2095,7 @@ if (__DEBUG__) (window as unknown as { __skateTrick: typeof skateTrick }).__skat
 // size and lets the sprite tilt and move smoothly without shimmering.
 const PIXEL_RIDER =
   typeof window === "undefined" || new URLSearchParams(window.location.search).get("rider") !== "classic";
-type PixelPose = "ride" | "ride2" | "tuck" | "air" | "slide";
+type PixelPose = "ride" | "ride2" | "tuck" | "air" | "slide" | "grind";
 type PixelRun = { x: number; y: number; w: number; color: string };
 const PIXEL_SCALE = 3.5;
 
@@ -2255,7 +2272,28 @@ function buildPixelRider(pose: PixelPose, blink: boolean): PixelRider {
   };
 
   const tx = 10;
-  if (pose === "tuck") {
+  if (pose === "grind") {
+    // Grinding a rail: crouched low, knees out, arms wide for balance
+    const ty = 24;
+    cape(ty, 11, 1);
+    rect(tx - 1, ty + 1, 3, 3, PX.tee);
+    rect(tx - 5, ty + 1, 4, 2, PX.skin);
+    rect(tx - 7, ty, 2, 3, PX.skin);
+    rect(tx + 2, ty + 9, 9, 2, PX.jeans);
+    rect(tx, ty + 10, 4, 3, PX.jeans);
+    rect(tx + 9, ty + 10, 4, 3, PX.jeans);
+    rect(tx + 1, ty + 10, 1, 2, PX.jeansHi);
+    rect(tx + 10, ty + 10, 1, 2, PX.jeansHi);
+    rect(tx - 1, ty + 12, 3, 2, PX.jeans);
+    rect(tx + 11, ty + 12, 3, 2, PX.jeans);
+    shoe(tx - 3, 38);
+    shoe(tx + 10, 38);
+    torso(tx, ty);
+    rect(tx + 11, ty + 1, 2, 3, PX.tee);
+    rect(tx + 13, ty + 1, 4, 2, PX.skin);
+    rect(tx + 17, ty, 2, 3, PX.skin);
+    head(tx - 1, 5);
+  } else if (pose === "tuck") {
     // Ollie take-off: crouched in the air, knees pulled up, feet on the board
     const ty = 24;
     cape(ty, 11, 2);
@@ -2566,9 +2604,12 @@ function drawPlayer(
   // ---- Skateboard ----
   // Ollie: nose tips up while rising, levels out on the way down.
   let boardTilt = airborne ? clamp(player.velocityY / 2600, -0.32, 0.1) : 0;
+  const grinding =
+    HALLOWEEN && state.onPlatform !== null && state.platforms.some((p) => p.id === state.onPlatform && p.kind === "rail");
   if (trick === "grab") boardTilt -= 0.2 * trickArc;
   if (manual) boardTilt = -0.14;
   if (!airborne) boardTilt += lean > 0 ? lean * 0.07 : lean * 0.16;
+  if (grinding) boardTilt = -0.06 + state.grindBalance * 0.12; // nose up, wobbling with the balance
   const boardY = H - 16 - (manual ? 4 : 0);
   ctx.save();
   ctx.translate(76, boardY);
@@ -2637,17 +2678,19 @@ function drawPlayer(
   ctx.restore();
 
   if (PIXEL_RIDER) {
-    const pose: PixelPose = player.sliding
-      ? "slide"
-      : airborne
-        ? player.velocityY < 0 ? "tuck" : "air"
-        : Math.floor(state.elapsed * 3) % 2 === 0 ? "ride" : "ride2";
+    const pose: PixelPose = grinding
+      ? "grind"
+      : player.sliding
+        ? "slide"
+        : airborne
+          ? player.velocityY < 0 ? "tuck" : "air"
+          : Math.floor(state.elapsed * 3) % 2 === 0 ? "ride" : "ride2";
     // Shoe outline sits on the deck outline; in the air the rider follows half
     // of the board's tilt so the feet stay on it
     drawPixelRider(
       ctx,
       pose,
-      lean * 0.1 + (airborne ? boardTilt * 0.6 : 0),
+      lean * 0.1 + (airborne ? boardTilt * 0.6 : 0) + (grinding ? state.grindBalance * 0.32 : 0),
       boardY - PIXEL_SCALE,
       keychronLogo,
       state.elapsed % 3.4 < 0.13,
@@ -3698,6 +3741,8 @@ function PizzaDashGame() {
       } else if (effect === "trick") {
         scheduleTone(context, sfx, now, 0.5, 300, 140, 0.05, "sawtooth", -20);
         scheduleTone(context, sfx, now + 0.05, 0.45, 315, 150, 0.03, "sawtooth", 20);
+      } else if (effect === "grind") {
+        scheduleNoise(bus, sfx, now, 0.15, 0.03, 4200, "bandpass", 1.6);
       } else if (effect === "thunder") {
         // Crack, then a long low rumble
         scheduleNoise(bus, sfx, now, 0.12, 0.09, 2600, "highpass", 0.6);
@@ -3836,6 +3881,8 @@ function PizzaDashGame() {
       }
       player.velocityY = -1030;
       player.grounded = false;
+      const from = gameRef.current.platforms.find((p) => p.id === gameRef.current.onPlatform);
+      gameRef.current.jumpedFromRoof = from && from.kind === "roof" ? from.id : null;
       gameRef.current.onPlatform = null; // jumping off a rail or rooftop
       playSound("jump");
     }
@@ -4207,9 +4254,12 @@ function PizzaDashGame() {
         game.mission.progress = kind === "combo" ? Math.max(game.mission.progress, amount) : game.mission.progress + amount;
       };
 
-      const steer = Number(keysRef.current.right) - Number(keysRef.current.left);
+      const rawSteer = Number(keysRef.current.right) - Number(keysRef.current.left);
       const mirrored = HALLOWEEN && game.curse?.kind === "mirror";
-      const horizontal = (mirrored ? -steer : steer) * 330 * dt;
+      const steer = mirrored ? -rawSteer : rawSteer;
+      const onRailNow =
+        HALLOWEEN && game.onPlatform !== null && game.platforms.some((p) => p.id === game.onPlatform && p.kind === "rail");
+      const horizontal = onRailNow ? 0 : steer * 330 * dt; // on a rail, ← → balance instead
       player.x = clamp(player.x + horizontal, 92, 420);
 
       const wantsSlide = keysRef.current.down && player.grounded && !(HALLOWEEN && game.onPlatform !== null);
@@ -4243,10 +4293,27 @@ function PizzaDashGame() {
           player.velocityY = 0;
           player.grounded = true;
           game.onPlatform = landOn.id;
+          if (landOn.kind === "rail") {
+            game.grindBalance = (Math.random() - 0.5) * 0.3;
+            game.grindDrift = (Math.random() - 0.5) * 0.8;
+            game.grindLevel = 1;
+            game.grindSteady = 0;
+          }
+          if (landOn.kind === "roof" && game.jumpedFromRoof !== null && game.jumpedFromRoof !== landOn.id) {
+            // Cleared the gap between two roofs
+            const name = TRICK_NAMES[skateTrick.trick] ?? "OLLIE";
+            const points = GAP_POINTS * mult;
+            game.score += points;
+            game.scorePopups.push({ x: player.x + 75, y: player.y - 20, text: `${name} GAP! +${points}`, timer: 1.2, duration: 1.2, color: "#ffd84e" });
+            addParticles(player.x + 75, landOn.top, "#ffd84e", 14);
+            playSound("treat");
+          }
+          game.jumpedFromRoof = null;
           if (landOn.kind === "roof") missionEvent("roof");
           addParticles(player.x + 65, landOn.top, landOn.kind === "rail" ? "#ffd84e" : "#d9c2a6", 6);
         } else if (player.y >= GROUND_Y - player.height) {
           game.onPlatform = null;
+          game.jumpedFromRoof = null;
           player.y = GROUND_Y - player.height;
           player.velocityY = 0;
           player.grounded = true;
@@ -4310,11 +4377,40 @@ function PizzaDashGame() {
         // Grinding a rail: points every second, sparks at the board
         const onRail = game.onPlatform !== null && game.platforms.some((p) => p.id === game.onPlatform && p.kind === "rail");
         if (onRail) {
-          const points = GRIND_POINTS_PER_SECOND * dt * mult;
-          game.score += points;
-          game.grindPoints += points;
-          missionEvent("grind", dt);
-          if (Math.random() < 0.6) addParticles(player.x + 40 + Math.random() * 70, player.y + player.height, "#ffd84e", 1);
+          // Balance: the needle drifts and tips away from the centre; ← → push it back
+          game.grindDrift = clamp(game.grindDrift + (Math.random() - 0.5) * 6 * dt, -1.2, 1.2);
+          game.grindBalance += (game.grindDrift * 0.9 + game.grindBalance * 1.1) * dt + steer * 2.4 * dt;
+          if (Math.abs(game.grindBalance) >= 1) {
+            // Lost balance: hop off the rail (no life lost, points so far are kept)
+            game.onPlatform = null;
+            player.grounded = false;
+            player.velocityY = -380;
+            game.grindBalance = 0;
+            game.scorePopups.push({ x: player.x + 75, y: player.y - 30, text: "BAILED!", timer: 0.9, duration: 0.9, color: "#ff6b8a" });
+            playSound("miss");
+          } else {
+            if (Math.abs(game.grindBalance) < 0.35) {
+              game.grindSteady += dt;
+              if (game.grindSteady >= GRIND_LEVEL_UP_SECONDS && game.grindLevel < 3) {
+                game.grindLevel += 1;
+                game.grindSteady = 0;
+                game.scorePopups.push({ x: player.x + 75, y: player.y - 50, text: `GRIND x${game.grindLevel}!`, timer: 0.9, duration: 0.9, color: "#ffd84e" });
+              }
+            } else {
+              game.grindSteady = Math.max(0, game.grindSteady - dt);
+            }
+            const points = GRIND_POINTS_PER_SECOND * game.grindLevel * dt * mult;
+            game.score += points;
+            game.grindPoints += points;
+            missionEvent("grind", dt);
+            // Sparks stream off the back of the board, and a scraping sound
+            for (let k = 0; k < 2; k += 1) addParticles(player.x + 20 + Math.random() * 30, player.y + player.height, k ? "#ffd84e" : "#ffffff", 1);
+            game.grindSoundTimer -= dt;
+            if (game.grindSoundTimer <= 0) {
+              playSound("grind");
+              game.grindSoundTimer = 0.16;
+            }
+          }
         } else if (game.grindPoints > 0) {
           game.scorePopups.push({ x: player.x + 75, y: player.y - 10, text: `GRIND +${Math.round(game.grindPoints)}`, timer: 1, duration: 1, color: "#ffd84e" });
           game.grindPoints = 0;
@@ -4978,6 +5074,9 @@ function PizzaDashGame() {
         game.obstacles.forEach((obstacle) => drawObstacle(ctx, obstacle));
       }
       drawPlayer(ctx, game, images.keychron);
+      if (HALLOWEEN && game.onPlatform !== null && game.platforms.some((p) => p.id === game.onPlatform && p.kind === "rail")) {
+        drawBalanceMeter(ctx, game.player.x + 76, game.player.y - 62, game.grindBalance, game.grindLevel);
+      }
       if (HALLOWEEN) {
         game.projectiles.forEach((shot) => drawProjectile(ctx, shot));
         if (game.curse?.kind === "fog") drawFogCurse(ctx, game.elapsed, Math.min(1, game.curse.timer));
@@ -5359,7 +5458,7 @@ function PizzaDashGame() {
           {HALLOWEEN ? (
             <>
               <h2>Survive Halloween night</h2>
-              <p>You skate automatically and speed up the further you go. Jump over pumpkins, gravestones, slime, coffins, skeleton hands and the hearse, or jump right ON pumpkins, coffins and hands to smash them. Slide under signs, cobwebs, ghosts and bats, and stay low under flying witches. Every candy you grab is ammo: throw it to zap ghosts, bats and witches. Every 1,000 m the witch attacks: dodge her pumpkin bombs or hit her 3 times. Knock on doors for a treat (or a trick!), grab power-ups, and enjoy double points in the haunted stretches. Jump onto graveyard rails to grind for points, take the rooftop route for extra candy (mind the gaps), and complete the missions at the top of the screen.</p>
+              <p>You skate automatically and speed up the further you go. Jump over pumpkins, gravestones, slime, coffins, skeleton hands and the hearse, or jump right ON pumpkins, coffins and hands to smash them. Slide under signs, cobwebs, ghosts and bats, and stay low under flying witches. Every candy you grab is ammo: throw it to zap ghosts, bats and witches. Every 1,000 m the witch attacks: dodge her pumpkin bombs or hit her 3 times. Knock on doors for a treat (or a trick!), grab power-ups, and enjoy double points in the haunted stretches. Jump onto graveyard rails to grind (keep your balance with ← → for up to x3 points), take the rooftop route for extra candy and gap-jump tricks, and complete the missions at the top of the screen.</p>
             </>
           ) : (
             <>

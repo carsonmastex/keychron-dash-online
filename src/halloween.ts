@@ -1782,6 +1782,41 @@ export function drawRooftop(ctx: CanvasRenderingContext2D, roof: Platform, elaps
   ctx.restore();
 }
 
+/** Balance meter above the rider while grinding: keep the needle in the green. */
+export function drawBalanceMeter(ctx: CanvasRenderingContext2D, cx: number, y: number, balance: number, level: number) {
+  const w = 150;
+  const x = cx - w / 2;
+  ctx.save();
+  ctx.fillStyle = "rgba(21,18,28,.88)";
+  roundedRect(ctx, x - 8, y - 8, w + 16, 34, 10);
+  ctx.fill();
+  // Zones: red edges, amber, green centre
+  const zone = (from: number, to: number, color: string) => {
+    ctx.fillStyle = color;
+    ctx.fillRect(x + ((from + 1) / 2) * w, y, ((to - from) / 2) * w, 10);
+  };
+  zone(-1, -0.7, "#e23b5a");
+  zone(-0.7, -0.35, "#ffb347");
+  zone(-0.35, 0.35, "#7ee04a");
+  zone(0.35, 0.7, "#ffb347");
+  zone(0.7, 1, "#e23b5a");
+  // Needle
+  const nx = x + ((clamp(balance, -1, 1) + 1) / 2) * w;
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.moveTo(nx - 6, y - 6);
+  ctx.lineTo(nx + 6, y - 6);
+  ctx.lineTo(nx, y + 4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillRect(nx - 1.5, y, 3, 12);
+  ctx.fillStyle = level > 1 ? "#ffd84e" : "rgba(255,255,255,.75)";
+  ctx.font = "900 11px 'Courier New', monospace";
+  ctx.textAlign = "center";
+  ctx.fillText(level > 1 ? `BALANCE · GRIND x${level}` : "BALANCE  ← →", cx, y + 22);
+  ctx.restore();
+}
+
 // ---------------------------------------------------------------------------
 // Missions
 // ---------------------------------------------------------------------------
