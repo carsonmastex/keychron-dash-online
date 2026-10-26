@@ -1,7 +1,13 @@
 import { createRoot } from "react-dom/client";
 import Game from "./Game";
+import { HALLOWEEN } from "./halloween";
+
 
 const html = document.documentElement;
+if (HALLOWEEN) {
+  html.classList.add("halloween");
+  document.title = "Keychron Halloween Dash 2026";
+}
 const isEmbed = new URLSearchParams(window.location.search).has("embed");
 let isFramed = false;
 try {

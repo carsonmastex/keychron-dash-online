@@ -1228,3 +1228,58 @@ html.framed .site-shell {
     min-height: 64px;
   }
 }
+
+/* ---------- Halloween theme (html.halloween, see src/halloween.ts) ---------- */
+html.halloween {
+  --red: #ff7a1a;
+  --red-shadow: #b8500a;
+  --on-red: #1b1220;
+  --yellow: #ffb347;
+  --blue: #c7a4f5;
+  --blue-soft: #c7a4f5;
+  --cream: #140d20;
+  background: #140d20;
+}
+
+html.halloween body {
+  background:
+    radial-gradient(circle at 86% 5%, rgba(255, 241, 201, .16), transparent 15rem),
+    radial-gradient(circle at 10% 8%, rgba(255, 122, 26, .22), transparent 22rem),
+    linear-gradient(180deg, #1d1236 0%, #120b1f 100%);
+  color: #f3eefc;
+}
+
+html.halloween .game-heading h1 {
+  color: #f6f0ff;
+}
+
+html.halloween .heading-copy,
+html.halloween .control-copy > p:last-child {
+  color: #cfc2e8;
+}
+
+html.halloween .control-copy h2 {
+  color: #f6f0ff;
+}
+
+html.halloween .game-stage,
+html.halloween .screen-bezel {
+  background: #1a1028;
+}
+
+html.halloween .screen-bezel {
+  border-color: #1a1028;
+}
+
+html.halloween .halloween-tag {
+  color: var(--red);
+  font-weight: 900;
+  letter-spacing: .06em;
+}
+
+html.halloween .result-halloween-tag {
+  color: var(--red);
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: .05em;
+}

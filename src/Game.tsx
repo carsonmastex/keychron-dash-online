@@ -6,6 +6,23 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import keychronLogoUrl from "../assets/keychron-logo.png";
+import {
+  HALLOWEEN,
+  POWER_UP_INFO,
+  drawBroomUnderBoard,
+  drawCandy,
+  drawHalloweenBackground,
+  drawHalloweenObstacle,
+  drawHauntedBanner,
+  drawPlayerAura,
+  drawPowerUpHud,
+  drawPowerUpItem,
+  drawPowerUpIcon,
+  drawPumpkinKeycap,
+  type ActivePower,
+  type PowerUpItem,
+  type PowerUpKind,
+} from "./halloween";
 import paxLogoUrl from "../assets/pax-aus-logo.png";
 import paxFlagsLogoUrl from "../assets/pax26-flags-logo-sm.png";
 import {
@@ -50,7 +67,9 @@ type ObstacleKind =
   | "boxes" // jump: tall stack of PAX merch boxes
   | "banner" // slide: hanging PAX banner
   | "drone" // slide: camera drone at head height
-  | "truck"; // jump: a little Keychron delivery truck
+  | "truck" // jump: a little Keychron delivery truck
+  | "hand" // Halloween, jump: skeleton hand out of the road
+  | "bats"; // Halloween, slide: swarm of bats at head height
 
 // Spawn weights; `from` is the distance (m) where the obstacle starts appearing.
 const OBSTACLE_TABLE: { kind: ObstacleKind; weight: number; from: number }[] = [
@@ -63,7 +82,26 @@ const OBSTACLE_TABLE: { kind: ObstacleKind; weight: number; from: number }[] = [
   { kind: "boxes", weight: 11, from: 0 },
   { kind: "drone", weight: 10, from: 0 },
   { kind: "truck", weight: 11, from: 0 },
+  // Halloween-only obstacles (same sizes as the cone and the drone)
+  ...(HALLOWEEN
+    ? [
+        { kind: "hand" as const, weight: 9, from: 0 },
+        { kind: "bats" as const, weight: 9, from: 0 },
+      ]
+    : []),
 ];
+
+// ---- Halloween rules (only used when HALLOWEEN) ----
+// Speed is never changed by any of these, so the server's run-time check stays valid.
+const POWER_UP_FIRST_SECONDS = 12;
+const POWER_UP_GAP_MIN = 16;
+const POWER_UP_GAP_RANDOM = 8;
+const HAUNTED_EVERY_METRES = 500;
+const HAUNTED_SECONDS = 10;
+const HAUNTED_POINTS_MULTIPLIER = 2;
+const BROOM_HEIGHT = 150; // px above the road while flying
+const MAGNET_RADIUS = 300;
+const GHOST_PASS_POINTS = 25;
 
 type Player = {
   x: number;
@@ -193,6 +231,15 @@ type GameState = {
   comboTimer: number;
   shake: number;
   nextId: number;
+  // Halloween
+  powerUps: PowerUpItem[];
+  powerUpTimer: number;
+  activePower: ActivePower | null;
+  pumpkinShield: number; // seconds left; blocks one hit
+  broomLift: number; // 0 on the road .. 1 flying
+  haunted: number; // seconds left in a haunted stretch
+  lightning: number; // 0..1 flash
+  nextLightning: number;
 };
 
 type Hud = {
@@ -216,7 +263,10 @@ type SoundEffect =
   | "keychron"
   | "bigpizza"
   | "miss"
-  | "milestone";
+  | "milestone"
+  | "powerup"
+  | "haunted"
+  | "shieldbreak";
 
 type AudioBus = {
   context: AudioContext;
@@ -274,6 +324,14 @@ const freshGame = (): GameState => ({
   comboTimer: 0,
   shake: 0,
   nextId: 1,
+  powerUps: [],
+  powerUpTimer: POWER_UP_FIRST_SECONDS,
+  activePower: null,
+  pumpkinShield: 0,
+  broomLift: 0,
+  haunted: 0,
+  lightning: 0,
+  nextLightning: 0,
 });
 
 const clamp = (value: number, min: number, max: number) =>
@@ -498,20 +556,37 @@ function scheduleYelp(
   scheduleNoise(bus, destination, start, 0.12, 0.035, 2200, "bandpass", 1.1);
 }
 
+// Halloween music: A minor with a harmonic-minor E chord for a spooky lilt
+const SPOOKY_MELODY = [
+  440, 0, 523.25, 0, 659.25, 622.25, 587.33, 0,
+  523.25, 0, 493.88, 523.25, 440, 0, 0, 0,
+  349.23, 0, 440, 0, 523.25, 493.88, 466.16, 0,
+  440, 0, 415.3, 440, 329.63, 0, 0, 0,
+];
+const SPOOKY_ROOTS = [110, 87.31, 73.42, 82.41];
+const SPOOKY_CHORDS = [
+  [220, 261.63, 329.63],
+  [174.61, 220, 261.63],
+  [146.83, 174.61, 220],
+  [164.81, 207.65, 246.94],
+];
+
 function scheduleMusicStep(bus: AudioBus, step: number, start: number, stepLength: number) {
-  const melody = [
+  const melody = HALLOWEEN ? SPOOKY_MELODY : [
     659.25, 0, 783.99, 0, 880, 783.99, 659.25, 0,
     587.33, 0, 659.25, 783.99, 523.25, 0, 659.25, 0,
     698.46, 0, 880, 0, 987.77, 880, 698.46, 0,
     659.25, 0, 587.33, 659.25, 783.99, 0, 523.25, 0,
   ];
-  const roots = [130.81, 174.61, 220, 196];
-  const chordTones = [
-    [261.63, 329.63, 392],
-    [349.23, 440, 523.25],
-    [440, 523.25, 659.25],
-    [392, 493.88, 587.33],
-  ];
+  const roots = HALLOWEEN ? SPOOKY_ROOTS : [130.81, 174.61, 220, 196];
+  const chordTones = HALLOWEEN
+    ? SPOOKY_CHORDS
+    : [
+        [261.63, 329.63, 392],
+        [349.23, 440, 523.25],
+        [440, 523.25, 659.25],
+        [392, 493.88, 587.33],
+      ];
   const normalizedStep = step % melody.length;
   const chordIndex = Math.floor(normalizedStep / 8) % chordTones.length;
   const note = melody[normalizedStep];
@@ -839,6 +914,14 @@ function drawBackground(
   state: GameState,
   images: GameImages,
 ) {
+  if (HALLOWEEN) {
+    drawHalloweenBackground(
+      ctx,
+      { scroll: state.scroll, elapsed: state.elapsed, haunted: state.haunted, lightning: state.lightning },
+      images.keychron,
+    );
+    return;
+  }
   const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
   sky.addColorStop(0, "#74d8f2");
   sky.addColorStop(0.72, "#dff7f7");
@@ -1206,20 +1289,24 @@ function drawBigPizza(
   for (let row = 0; row < rows; row += 1) {
     for (let col = 0; col < cols; col += 1) {
       const accent = (row === 0 && col === 0) || (row === 2 && col === cols - 1);
-      ctx.fillStyle = accent ? "#f5b21f" : row === rows - 1 && col > 2 && col < 7 ? "#e7e9ec" : "#cfd4d9";
+      if (HALLOWEEN) {
+        ctx.fillStyle = accent ? "#7b3fbf" : (row + col) % 3 === 0 ? "#ff7a1a" : "#2a2433";
+      } else {
+        ctx.fillStyle = accent ? "#f5b21f" : row === rows - 1 && col > 2 && col < 7 ? "#e7e9ec" : "#cfd4d9";
+      }
       if (row === rows - 1 && col > 3 && col < 7) continue; // space bar drawn below
       roundedRect(ctx, -w / 2 + pad + col * keyW + 1.5, -h / 2 + pad + row * keyH + 1.5, keyW - 3, keyH - 3, 2);
       ctx.fill();
     }
   }
-  ctx.fillStyle = "#e7e9ec";
+  ctx.fillStyle = HALLOWEEN ? "#ff7a1a" : "#e7e9ec";
   roundedRect(ctx, -w / 2 + pad + 4 * keyW + 1.5, -h / 2 + pad + 3 * keyH + 1.5, keyW * 3 - 3, keyH - 3, 2);
   ctx.fill();
   ctx.restore();
 
   ctx.save();
   ctx.translate(x, y - h * 0.5 - 30);
-  const label = "KEYCHRON!";
+  const label = HALLOWEEN ? "SPOOKY KEYBOARD!" : "KEYCHRON!";
   ctx.font = "900 14px Arial";
   const labelWidth = Math.ceil(ctx.measureText(label).width) + 22;
   ctx.fillStyle = "#171b1f";
@@ -1699,8 +1786,8 @@ function drawObstacle(ctx: CanvasRenderingContext2D, obstacle: Obstacle) {
  */
 function drawBoardCat(ctx: CanvasRenderingContext2D, elapsed: number, crouch: number) {
   const outline = "#1b1d22";
-  const fur = "#f2a33a";
-  const furDark = "#d9822b";
+  const fur = HALLOWEEN ? "#2b2533" : "#f2a33a";
+  const furDark = HALLOWEEN ? "#4a4157" : "#d9822b";
   ctx.save();
   ctx.scale(1.25, 1.25 * (1 - crouch * 0.28));
   ctx.lineCap = "round";
@@ -1786,7 +1873,7 @@ function drawBoardCat(ctx: CanvasRenderingContext2D, elapsed: number, crouch: nu
       ctx.arc(ex, hy - 0.5, 1.6, 0.1 * Math.PI, 0.9 * Math.PI);
       ctx.stroke();
     } else {
-      ctx.fillStyle = outline;
+      ctx.fillStyle = HALLOWEEN ? "#ffb52e" : outline;
       ctx.beginPath();
       ctx.ellipse(ex, hy - 0.5, 1.7, 2.3, 0, 0, Math.PI * 2);
       ctx.fill();
@@ -1885,6 +1972,8 @@ const PX = {
   wheel: "#f2efe6",
   hub: "#8eddf1",
   outline: "#15171c",
+  cape: "#1c1226",
+  capeLining: "#b3122e",
 };
 
 function makePixelGrid(width: number, height: number) {
@@ -2009,6 +2098,18 @@ function buildPixelRider(pose: PixelPose, blink: boolean): PixelRider {
     rect(x, y + 1, 6, 1, PX.sole);
   };
 
+  // Halloween: vampire cape flowing back from the shoulders (drawn first, behind everything)
+  const cape = (ty: number, rows: number, flutter: number) => {
+    if (!HALLOWEEN) return;
+    for (let k = 0; k < rows; k += 1) {
+      const spread = Math.floor(k * 0.6) + (k > rows / 2 ? flutter : 0);
+      rect(tx + 1 - spread, ty + k, 4 + spread, 1, PX.cape);
+      rect(tx + 1 - spread, ty + k, 1, 1, PX.capeLining);
+    }
+    rect(tx + 1, ty - 2, 2, 2, PX.capeLining); // collar
+    rect(tx + 9, ty - 2, 2, 2, PX.capeLining);
+  };
+
   const fistsUp = (ty: number) => {
     // Both fists up in the air, drawn over the head's edge so they show
     rect(tx - 1, ty + 1, 3, 2, PX.tee);
@@ -2023,6 +2124,7 @@ function buildPixelRider(pose: PixelPose, blink: boolean): PixelRider {
   if (pose === "tuck") {
     // Ollie take-off: crouched in the air, knees pulled up, feet on the board
     const ty = 24;
+    cape(ty, 11, 2);
     rect(tx + 2, ty + 9, 9, 2, PX.jeans);
     // Back leg: knee bent back and up
     rect(tx - 1, ty + 8, 6, 3, PX.jeans);
@@ -2040,6 +2142,7 @@ function buildPixelRider(pose: PixelPose, blink: boolean): PixelRider {
   } else if (pose === "slide") {
     // Crouched low and forward, one hand down on the board
     const ty = 30;
+    cape(ty, 6, 1);
     rect(tx - 1, ty + 1, 4, 6, PX.tee);
     torso(tx, ty, 6);
     rect(tx + 1, ty + 6, 13, 2, PX.jeans);
@@ -2054,6 +2157,7 @@ function buildPixelRider(pose: PixelPose, blink: boolean): PixelRider {
     const ty = 21;
     const air = pose === "air";
     const sway = pose === "ride2" ? 1 : 0;
+    cape(ty, 14, air ? 2 : sway);
     // Back arm out for balance
     if (!air) {
       rect(tx - 1, ty + 1, 3, 3, PX.tee);
@@ -2276,6 +2380,9 @@ function drawPlayer(
   ctx.translate(x, y);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
+  // Halloween ghost mode: the rider (and board and cat) turn see-through
+  const ghostMode = HALLOWEEN && state.activePower?.kind === "ghost";
+  if (ghostMode) ctx.globalAlpha = 0.45 + Math.sin(state.elapsed * 10) * 0.1;
 
   // Ground shadow (stays on the ground while jumping)
   ctx.fillStyle = "rgba(0,0,0,.22)";
@@ -2344,6 +2451,7 @@ function drawPlayer(
   } else if (trick === "grab") {
     ctx.translate(0, -trickArc * 6);
   }
+  if (HALLOWEEN && state.broomLift > 0) drawBroomUnderBoard(ctx, state.elapsed, state.broomLift);
   if (PIXEL_RIDER) {
     drawPixelBoard(ctx, wheelAngle);
   } else {
@@ -2678,6 +2786,18 @@ function drawPlayer(
   drawBoardCat(ctx, state.elapsed, player.sliding ? 1 : 0);
   ctx.restore();
 
+  if (HALLOWEEN) {
+    ctx.globalAlpha = 1;
+    drawPlayerAura(ctx, {
+      width: player.width,
+      height: H,
+      elapsed: state.elapsed,
+      broomLift: state.broomLift,
+      shieldSeconds: state.pumpkinShield,
+      magnet: state.activePower?.kind === "magnet",
+      ghost: ghostMode,
+    });
+  }
   ctx.restore();
 }
 
@@ -2727,7 +2847,7 @@ function drawHud(
   ctx.fillStyle = "#8eddf1";
   ctx.font = "800 15px 'Courier New', monospace";
   ctx.fillText("SCORE", 52, 49);
-  ctx.fillText("SWITCHES", 204, 49);
+  ctx.fillText(HALLOWEEN ? "CANDY" : "SWITCHES", 204, 49);
   ctx.fillText("DISTANCE", 360, 49);
   ctx.fillStyle = "#ffffff";
   ctx.font = "900 29px 'Courier New', monospace";
@@ -2902,7 +3022,7 @@ function drawHud(
     ctx.translate(WORLD_WIDTH / 2, 150);
     const breathe = 1 + Math.sin(state.elapsed * 4) * 0.055;
     ctx.scale(breathe, breathe);
-    const comboLabel = `${state.combo}× SWITCH COMBO!`;
+    const comboLabel = `${state.combo}× ${HALLOWEEN ? "CANDY" : "SWITCH"} COMBO!`;
     ctx.font = "900 28px Arial";
     const comboWidth = Math.ceil(ctx.measureText(comboLabel).width) + 44;
     const comboHeight = 52;
@@ -3059,14 +3179,44 @@ function drawOverlay(
     ctx.fillStyle = "#ffffff";
     ctx.textAlign = "center";
     ctx.font = "900 72px Arial";
-    ctx.fillText("KEYCHRON DASH", WORLD_WIDTH / 2, 240);
-    ctx.fillStyle = "#ffd84e";
-    ctx.font = "900 28px Arial";
-    ctx.fillText("RACE TO PAX AUS 2026", WORLD_WIDTH / 2, 288);
-    ctx.fillStyle = "rgba(255,255,255,.82)";
-    ctx.font = "700 21px Arial";
-    ctx.fillText("Dodge the obstacles, grab switches and spell K-E-Y-C-H-R-O-N!", WORLD_WIDTH / 2, 340);
-    ctx.fillStyle = "#f5b21f";
+    if (HALLOWEEN) {
+      ctx.fillText("KEYCHRON DASH", WORLD_WIDTH / 2, 196);
+      ctx.fillStyle = "#ff7a1a";
+      ctx.font = "900 34px Arial";
+      ctx.fillText("🎃 HALLOWEEN NIGHT 🎃", WORLD_WIDTH / 2, 244);
+      ctx.fillStyle = "rgba(255,255,255,.85)";
+      ctx.font = "700 20px Arial";
+      ctx.fillText("Dodge the spooks, grab candy and spell K-E-Y-C-H-R-O-N!", WORLD_WIDTH / 2, 286);
+      // Power-up legend
+      const kinds: PowerUpKind[] = ["broom", "shield", "magnet", "ghost"];
+      kinds.forEach((kind, index) => {
+        const cx = WORLD_WIDTH / 2 - 375 + index * 250;
+        ctx.save();
+        ctx.translate(cx - 70, 330);
+        drawPowerUpIcon(ctx, kind, 34);
+        ctx.restore();
+        ctx.textAlign = "left";
+        ctx.fillStyle = POWER_UP_INFO[kind].color;
+        ctx.font = "900 15px 'Courier New', monospace";
+        ctx.fillText(POWER_UP_INFO[kind].name, cx - 46, 326);
+        ctx.fillStyle = "rgba(255,255,255,.7)";
+        ctx.font = "700 13px Arial";
+        ctx.fillText(POWER_UP_INFO[kind].blurb, cx - 46, 344);
+      });
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#b98af0";
+      ctx.font = "700 15px Arial";
+      ctx.fillText("Every 500 m a HAUNTED STRETCH doubles your points for 10 seconds", WORLD_WIDTH / 2, 372);
+    } else {
+      ctx.fillText("KEYCHRON DASH", WORLD_WIDTH / 2, 240);
+      ctx.fillStyle = "#ffd84e";
+      ctx.font = "900 28px Arial";
+      ctx.fillText("RACE TO PAX AUS 2026", WORLD_WIDTH / 2, 288);
+      ctx.fillStyle = "rgba(255,255,255,.82)";
+      ctx.font = "700 21px Arial";
+      ctx.fillText("Dodge the obstacles, grab switches and spell K-E-Y-C-H-R-O-N!", WORLD_WIDTH / 2, 340);
+    }
+    ctx.fillStyle = HALLOWEEN ? "#ff7a1a" : "#f5b21f";
     roundedRect(ctx, WORLD_WIDTH / 2 - 210, 390, 420, 82, 18);
     ctx.fill();
     ctx.fillStyle = "#1b1d22";
@@ -3360,6 +3510,19 @@ function PizzaDashGame() {
       } else if (effect === "miss") {
         scheduleTone(context, sfx, now, 0.22, 330, 210, 0.05, "sine");
         scheduleTone(context, sfx, now + 0.16, 0.26, 240, 150, 0.045, "sine");
+      } else if (effect === "powerup") {
+        // Magic shimmer: quick rising arpeggio
+        [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((frequency, index) => {
+          scheduleTone(context, sfx, now + index * 0.05, 0.14, frequency, frequency * 1.01, 0.04, "triangle", index * 4);
+        });
+      } else if (effect === "haunted") {
+        // Spooky "ooo-OOO": a wobbling low glide plus a thunder rumble
+        scheduleTone(context, sfx, now, 0.9, 196, 330, 0.06, "sine", -12);
+        scheduleTone(context, sfx, now + 0.05, 0.85, 207.65, 311.13, 0.035, "triangle", 14);
+        scheduleNoise(bus, sfx, now + 0.1, 0.8, 0.08, 220, "lowpass", 0.8);
+      } else if (effect === "shieldbreak") {
+        scheduleNoise(bus, sfx, now, 0.22, 0.09, 900, "bandpass", 0.9);
+        scheduleTone(context, sfx, now, 0.25, 420, 160, 0.06, "square");
       } else if (effect === "milestone") {
         scheduleTone(context, sfx, now, 0.12, 784, 784, 0.04, "triangle");
         scheduleTone(context, sfx, now + 0.09, 0.16, 1046.5, 1046.5, 0.045, "triangle");
@@ -3483,6 +3646,7 @@ function PizzaDashGame() {
 
   const jump = useCallback(() => {
     if (modeRef.current !== "running") return;
+    if (HALLOWEEN && gameRef.current.broomLift > 0) return;
     const player = gameRef.current.player;
     if (player.grounded) {
       player.sliding = false;
@@ -3718,10 +3882,13 @@ function PizzaDashGame() {
 
     const spawnObstacle = (game: GameState) => {
       const available = OBSTACLE_TABLE.filter((entry) => game.distance >= entry.from);
-      let roll = Math.random() * available.reduce((sum, entry) => sum + entry.weight, 0);
+      // Haunted stretch: ghosts (drone) and bats come out more often. Same spawn rate overall.
+      const weightOf = (entry: (typeof OBSTACLE_TABLE)[number]) =>
+        HALLOWEEN && game.haunted > 0 && (entry.kind === "drone" || entry.kind === "bats") ? entry.weight * 2.5 : entry.weight;
+      let roll = Math.random() * available.reduce((sum, entry) => sum + weightOf(entry), 0);
       let kind: ObstacleKind = available[0].kind;
       for (const entry of available) {
-        roll -= entry.weight;
+        roll -= weightOf(entry);
         if (roll < 0) {
           kind = entry.kind;
           break;
@@ -3741,6 +3908,9 @@ function PizzaDashGame() {
         // Hitbox sized so the jump window at the start speed (6.6) matches the
         // box stack (~0.26 s); it is drawn 25% bigger, close to the plane's size.
         truck: { w: 110, h: 74, y: GROUND_Y - 74 },
+        // Halloween: same hitboxes as the cone (jump) and the drone (slide)
+        hand: { w: 58, h: 66, y: GROUND_Y - 64 },
+        bats: { w: 92, h: 36, y: GROUND_Y - 128 },
       };
       const spec = specs[kind];
       const spawnX = WORLD_WIDTH + 50;
@@ -3762,6 +3932,22 @@ function PizzaDashGame() {
         grazed: false,
       });
       return true;
+    };
+
+    const spawnPowerUp = (game: GameState) => {
+      const choices = (["broom", "shield", "magnet", "ghost"] as PowerUpKind[]).filter(
+        (kind) => kind !== game.activePower?.kind && !(kind === "shield" && game.pumpkinShield > 0),
+      );
+      const kind = choices[Math.floor(Math.random() * choices.length)];
+      game.powerUps.push({
+        id: game.nextId++,
+        kind,
+        x: WORLD_WIDTH + 60,
+        y: Math.random() > 0.5 ? GROUND_Y - 205 : GROUND_Y - 100,
+        size: 52,
+        phase: Math.random() * Math.PI * 2,
+        collected: false,
+      });
     };
 
     const spawnKeycap = (game: GameState) => {
@@ -3823,7 +4009,9 @@ function PizzaDashGame() {
       const worldMove = game.speed * 58 * dt;
       game.scroll += worldMove;
       game.distance += game.speed * dt * 1.25;
-      game.score += game.speed * dt * 4;
+      // Halloween haunted stretch doubles every point earned while it lasts
+      const mult = HALLOWEEN && game.haunted > 0 ? HAUNTED_POINTS_MULTIPLIER : 1;
+      game.score += game.speed * dt * 4 * mult;
 
       const horizontal = (Number(keysRef.current.right) - Number(keysRef.current.left)) * 330 * dt;
       player.x = clamp(player.x + horizontal, 92, 420);
@@ -3848,6 +4036,36 @@ function PizzaDashGame() {
           player.velocityY = 0;
           player.grounded = true;
           addParticles(player.x + 65, GROUND_Y, "#d9eef2", 5);
+        }
+      }
+
+      if (HALLOWEEN) {
+        // Broom: ease up to flying height, hold, then ease back down to the road
+        const flying = game.activePower?.kind === "broom";
+        const liftBefore = game.broomLift;
+        game.broomLift = clamp(game.broomLift + (flying ? dt : -dt) / 0.35, 0, 1);
+        if (liftBefore > 0 && game.broomLift === 0) player.y = GROUND_Y - player.height; // touch down exactly
+        if (game.broomLift > 0) {
+          const eased = game.broomLift * game.broomLift * (3 - 2 * game.broomLift);
+          player.sliding = false;
+          player.height = 116;
+          player.velocityY = 0;
+          player.grounded = true;
+          player.y = GROUND_Y - player.height - BROOM_HEIGHT * eased;
+        }
+        if (game.activePower) {
+          game.activePower.timer -= dt;
+          if (game.activePower.timer <= 0) game.activePower = null;
+        }
+        game.pumpkinShield = Math.max(0, game.pumpkinShield - dt);
+        game.haunted = Math.max(0, game.haunted - dt);
+        game.lightning = Math.max(0, game.lightning - dt / 0.18);
+        if (game.haunted > 0) {
+          game.nextLightning -= dt;
+          if (game.nextLightning <= 0) {
+            game.lightning = 1;
+            game.nextLightning = 2.2 + Math.random() * 1.2;
+          }
         }
       }
 
@@ -3887,7 +4105,14 @@ function PizzaDashGame() {
         game.milestoneFlash = 1.6;
         game.milestoneLabel = `${currentMilestone}M!`;
         addParticles(player.x + player.width / 2, player.y - 20, "#ffd84e", 14);
-        playSound("milestone");
+        if (HALLOWEEN && currentMilestone % HAUNTED_EVERY_METRES === 0) {
+          game.haunted = HAUNTED_SECONDS;
+          game.nextLightning = 0.6;
+          game.milestoneLabel = `${currentMilestone}M · HAUNTED!`;
+          playSound("haunted");
+        } else {
+          playSound("milestone");
+        }
       }
 
       game.obstacleTimer -= dt;
@@ -3909,6 +4134,16 @@ function PizzaDashGame() {
         spawnKeycap(game);
         game.keycapTimer = 7 + Math.random() * 5;
       }
+      if (HALLOWEEN) {
+        game.powerUpTimer -= dt;
+        if (game.powerUpTimer <= 0) {
+          spawnPowerUp(game);
+          game.powerUpTimer = POWER_UP_GAP_MIN + Math.random() * POWER_UP_GAP_RANDOM;
+        }
+        game.powerUps.forEach((item) => {
+          item.x -= worldMove;
+        });
+      }
 
       game.obstacles.forEach((obstacle) => {
         obstacle.x -= worldMove;
@@ -3924,8 +4159,43 @@ function PizzaDashGame() {
       }
 
       const playerBox = getPlayerHitbox(player);
+      // Flying on the broom or in ghost mode, obstacles can't touch the rider
+      const passThrough = HALLOWEEN && (game.broomLift > 0 || game.activePower?.kind === "ghost");
       for (const obstacle of game.obstacles) {
+        if (passThrough) {
+          if (game.activePower?.kind === "ghost" && !obstacle.grazed && !obstacle.hit && overlaps(playerBox, obstacle)) {
+            obstacle.grazed = true;
+            game.score += GHOST_PASS_POINTS * mult;
+            game.scorePopups.push({
+              x: obstacle.x + obstacle.width / 2,
+              y: obstacle.y,
+              text: `BOO! +${GHOST_PASS_POINTS * mult}`,
+              timer: 0.8,
+              duration: 0.8,
+              color: "#b8f0ff",
+            });
+          }
+          continue;
+        }
         if (!obstacle.hit && player.invincible <= 0 && player.shield <= 0 && overlaps(playerBox, obstacle)) {
+          if (HALLOWEEN && game.pumpkinShield > 0) {
+            // The pumpkin shield takes the hit instead of a life
+            obstacle.hit = true;
+            game.pumpkinShield = 0;
+            player.invincible = 1;
+            game.shake = 0.2;
+            addParticles(player.x + player.width / 2, player.y + player.height / 2, "#ff7a1a", 18);
+            game.scorePopups.push({
+              x: player.x + player.width / 2,
+              y: player.y - 10,
+              text: "SHIELD!",
+              timer: 0.9,
+              duration: 0.9,
+              color: "#ff7a1a",
+            });
+            playSound("shieldbreak");
+            continue;
+          }
           obstacle.hit = true;
           player.invincible = HIT_INVINCIBLE_SECONDS;
           game.lives -= 1;
@@ -3954,13 +4224,55 @@ function PizzaDashGame() {
               : -1;
         if (verticalGap >= 0 && verticalGap <= NEAR_MISS_MARGIN) {
           obstacle.grazed = true;
-          game.score += 40;
+          game.score += 40 * mult;
           addParticles(player.x + player.width / 2, player.y + player.height / 2, "#8eddf1", 6);
           if (game.grazeSoundCooldown <= 0) {
             playSound("graze");
             game.grazeSoundCooldown = 0.35;
           }
         }
+      }
+
+      if (HALLOWEEN) {
+        if (game.activePower?.kind === "magnet") {
+          // Candy and letters within reach drift into the rider
+          const px = playerBox.x + playerBox.width / 2;
+          const py = playerBox.y + playerBox.height / 2;
+          for (const item of [...game.pizzas, ...game.keycaps]) {
+            const dx = px - (item.x + item.size / 2);
+            const dy = py - (item.y + item.size / 2);
+            const dist = Math.hypot(dx, dy);
+            if (dist > 1 && dist < MAGNET_RADIUS) {
+              const pull = Math.min(dist, 900 * dt) / dist;
+              item.x += dx * pull;
+              item.y += dy * pull;
+            }
+          }
+        }
+        for (const item of game.powerUps) {
+          const box = {
+            x: item.x + 4,
+            y: item.y + Math.sin(game.elapsed * 4 + item.phase) * 7 + 4,
+            width: item.size - 8,
+            height: item.size - 8,
+          };
+          if (item.collected || !overlaps(playerBox, box)) continue;
+          item.collected = true;
+          const info = POWER_UP_INFO[item.kind];
+          if (item.kind === "shield") game.pumpkinShield = info.seconds;
+          else game.activePower = { kind: item.kind, timer: info.seconds, duration: info.seconds };
+          addParticles(item.x + item.size / 2, item.y + item.size / 2, info.color, 18);
+          game.scorePopups.push({
+            x: item.x + item.size / 2,
+            y: item.y,
+            text: `${info.name}!`,
+            timer: 1.1,
+            duration: 1.1,
+            color: info.color,
+          });
+          playSound("powerup");
+        }
+        game.powerUps = game.powerUps.filter((item) => !item.collected && item.x + item.size > -80);
       }
 
       for (const pizza of game.pizzas) {
@@ -3975,7 +4287,7 @@ function PizzaDashGame() {
           game.pizzasCollected += 1;
           game.combo += 1;
           game.comboTimer = 2.4;
-          game.score += 100 + Math.max(0, game.combo - 1) * 20;
+          game.score += (100 + Math.max(0, game.combo - 1) * 20) * mult;
           addParticles(pizza.x + 24, pizza.y + 24, "#ffd84e", 12);
           playSound("pizza", game.combo);
         }
@@ -4002,12 +4314,12 @@ function PizzaDashGame() {
               timer: 0.55,
               duration: 0.55,
             });
-            game.score += 70;
+            game.score += 70 * mult;
             playSound("keycap");
             if (game.collectedLetters.size >= KEYCHRON_LETTERS.length) {
               game.collectedLetters.clear();
               game.keychronCompletions += 1;
-              game.score += 250 + (Math.min(game.keychronCompletions, 5) - 1) * 100;
+              game.score += (250 + (Math.min(game.keychronCompletions, 5) - 1) * 100) * mult;
               game.keychronCelebration = 1.8;
               game.shake = Math.max(game.shake, 0.45);
               player.shield = Math.max(player.shield, KEYCHRON_SHIELD_SECONDS);
@@ -4018,7 +4330,7 @@ function PizzaDashGame() {
               addParticles(player.x + player.width / 2, player.y, "#e31837", 12);
             }
           } else {
-            game.score += 20;
+            game.score += 20 * mult;
             playSound("keycap");
           }
         }
@@ -4033,7 +4345,7 @@ function PizzaDashGame() {
         };
         if (overlaps(playerBox, bigPizzaBox)) {
           game.bigPizza.collected = true;
-          game.score += game.bigPizzaBonus;
+          game.score += game.bigPizzaBonus * mult;
           game.pizzasCollected += 1;
           addParticles(
             game.bigPizza.x + game.bigPizza.size / 2,
@@ -4044,7 +4356,7 @@ function PizzaDashGame() {
           game.scorePopups.push({
             x: game.bigPizza.x + game.bigPizza.size / 2,
             y: game.bigPizza.y,
-            text: `+${game.bigPizzaBonus}`,
+            text: `+${game.bigPizzaBonus * mult}`,
             timer: 1.1,
             duration: 1.1,
             color: "#ffd84e",
@@ -4088,14 +4400,25 @@ function PizzaDashGame() {
         ctx.translate((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 9);
       }
       drawBackground(ctx, game, images);
-      game.pizzas.forEach((pizza) => drawPizza(ctx, pizza, game.elapsed));
-      game.keycaps.forEach((keycap) => drawKeycap(ctx, keycap, game.elapsed));
+      if (HALLOWEEN) {
+        game.pizzas.forEach((pizza) => drawCandy(ctx, pizza, game.elapsed));
+        game.keycaps.forEach((keycap) => drawPumpkinKeycap(ctx, keycap, game.elapsed));
+        game.powerUps.forEach((item) => drawPowerUpItem(ctx, item, game.elapsed));
+      } else {
+        game.pizzas.forEach((pizza) => drawPizza(ctx, pizza, game.elapsed));
+        game.keycaps.forEach((keycap) => drawKeycap(ctx, keycap, game.elapsed));
+      }
       if (game.bigPizza) drawBigPizza(ctx, game.bigPizza, game.elapsed);
-      game.obstacles.forEach((obstacle) => drawObstacle(ctx, obstacle));
+      if (HALLOWEEN) game.obstacles.forEach((obstacle) => drawHalloweenObstacle(ctx, obstacle, game.elapsed));
+      else game.obstacles.forEach((obstacle) => drawObstacle(ctx, obstacle));
       drawPlayer(ctx, game, images.keychron);
       drawParticles(ctx, game.particles);
       drawScorePopups(ctx, game.scorePopups);
       drawHud(ctx, game, highScoreRef.current);
+      if (HALLOWEEN) {
+        drawPowerUpHud(ctx, game.activePower, game.pumpkinShield);
+        drawHauntedBanner(ctx, game.haunted, game.elapsed);
+      }
       if (game.keychronCelebration > 0) drawKeychronCelebration(ctx, game);
       if (game.bigPizzaMissed > 0) drawBigPizzaMissed(ctx, game);
       drawOverlay(ctx, modeRef.current);
@@ -4184,7 +4507,11 @@ function PizzaDashGame() {
           <img className="keychron-logo" src={keychronLogoUrl} alt="" width={40} height={40} />
           <span>KEYCHRON</span>
           <b>×</b>
-          <img className="pax-logo" src={paxLogoUrl} alt="PAX Aus" height={34} />
+          {HALLOWEEN ? (
+            <span className="halloween-tag">🎃 HALLOWEEN</span>
+          ) : (
+            <img className="pax-logo" src={paxLogoUrl} alt="PAX Aus" height={34} />
+          )}
           <span>2026</span>
         </div>
         <div className="topbar-actions">
@@ -4200,10 +4527,14 @@ function PizzaDashGame() {
 
       <header className="game-heading">
         <div>
-          <p className="eyebrow">PAX AUS 2026 / MCEC MELBOURNE / 9-11 OCT</p>
+          <p className="eyebrow">{HALLOWEEN ? "HALLOWEEN 2026 / HAUNTED MELBOURNE / TRICK OR TREAT" : "PAX AUS 2026 / MCEC MELBOURNE / 9-11 OCT"}</p>
           <h1>KEYCHRON <span>DASH</span></h1>
         </div>
-        <p className="heading-copy">Race through Melbourne to PAX Aus. Dodge the obstacles, grab switches, spell K-E-Y-C-H-R-O-N to win a keyboard bonus, and top the leaderboard.</p>
+        <p className="heading-copy">
+          {HALLOWEEN
+            ? "Skate through haunted Melbourne on Halloween night. Dodge pumpkins, ghosts and witches, grab candy and power-ups, spell K-E-Y-C-H-R-O-N for a spooky keyboard bonus, and top the leaderboard."
+            : "Race through Melbourne to PAX Aus. Dodge the obstacles, grab switches, spell K-E-Y-C-H-R-O-N to win a keyboard bonus, and top the leaderboard."}
+        </p>
       </header>
 
       <section className="game-stage" ref={stageRef} aria-label="Keychron Dash runner game">
@@ -4222,10 +4553,14 @@ function PizzaDashGame() {
           {mode === "gameover" && (
             <div className="result-overlay" aria-live="polite">
               <div className={`result-card ${gameOverView === "leaderboard" ? "leaderboard-card" : ""}`}>
-                <div className="result-brand-lockup" aria-label="Keychron and PAX Aus 2026">
+                <div className="result-brand-lockup" aria-label={HALLOWEEN ? "Keychron Halloween 2026" : "Keychron and PAX Aus 2026"}>
                   <img className="result-keychron-logo" src={keychronLogoUrl} alt="Keychron" />
                   <span>×</span>
-                  <img className="result-pax-logo" src={paxLogoUrl} alt="PAX Aus" />
+                  {HALLOWEEN ? (
+                    <span className="result-halloween-tag">🎃 HALLOWEEN</span>
+                  ) : (
+                    <img className="result-pax-logo" src={paxLogoUrl} alt="PAX Aus" />
+                  )}
                 </div>
 
                 {gameOverView === "entry" ? (
@@ -4234,7 +4569,7 @@ function PizzaDashGame() {
                     <h2>Nice run!</h2>
                     <strong className="final-score">{String(hud.score).padStart(5, "0")}</strong>
                     <p className="result-summary">
-                      {hud.pizzas} switches · {hud.distance} m
+                      {hud.pizzas} {HALLOWEEN ? "candy" : "switches"} · {hud.distance} m
                     </p>
                     <form
                       className="name-entry-form"
@@ -4338,7 +4673,7 @@ function PizzaDashGame() {
                             </span>
                             <span className="leader-name">{entry.name}</span>
                             <span className="leader-detail">
-                              {entry.switches} switches · {entry.distance}m
+                              {entry.switches} {HALLOWEEN ? "candy" : "switches"} · {entry.distance}m
                             </span>
                             <strong>{String(entry.score).padStart(5, "0")}</strong>
                           </li>
@@ -4363,7 +4698,7 @@ function PizzaDashGame() {
             </div>
           )}
           <div className="screen-corner corner-left" aria-hidden="true">KEYCHRON</div>
-          <div className="screen-corner corner-right" aria-hidden="true">PAX AUS 2026</div>
+          <div className="screen-corner corner-right" aria-hidden="true">{HALLOWEEN ? "HALLOWEEN 2026" : "PAX AUS 2026"}</div>
         </div>
 
         <section className="touch-panel" aria-label="Touch controls">
@@ -4412,7 +4747,7 @@ function PizzaDashGame() {
         <div className="game-toolbar">
           <div className="live-stats" aria-live="off">
             <span><small>SCORE</small>{String(hud.score).padStart(5, "0")}</span>
-            <span><small>SWITCHES</small>× {hud.pizzas}</span>
+            <span><small>{HALLOWEEN ? "CANDY" : "SWITCHES"}</small>× {hud.pizzas}</span>
             <span><small>LIVES</small>{"●".repeat(hud.lives)}{"○".repeat(3 - hud.lives)}</span>
             <span><small>DISTANCE</small>{hud.distance}m</span>
           </div>
@@ -4428,17 +4763,26 @@ function PizzaDashGame() {
       <section className="controls-section" aria-label="How to play">
         <div className="control-copy">
           <p className="section-kicker">HOW TO PLAY</p>
-          <h2>Get to PAX in one piece</h2>
-          <p>You run automatically and speed up the further you go. Jump over cones, barriers, puddles, delivery trucks and stacks of boxes. Stay low under planes, and slide under signs, banners and drones. Collect all eight KEYCHRON keycaps for a shield and a big keyboard bonus.</p>
+          {HALLOWEEN ? (
+            <>
+              <h2>Survive Halloween night</h2>
+              <p>You skate automatically and speed up the further you go. Jump over pumpkins, gravestones, slime, coffins, skeleton hands and the hearse. Stay low under flying witches, and slide under signs, cobwebs, ghosts and bats. Grab power-ups: a broom to fly, a pumpkin shield, a candy magnet and ghost mode. Every 500 m a haunted stretch doubles your points for 10 seconds.</p>
+            </>
+          ) : (
+            <>
+              <h2>Get to PAX in one piece</h2>
+              <p>You run automatically and speed up the further you go. Jump over cones, barriers, puddles, delivery trucks and stacks of boxes. Stay low under planes, and slide under signs, banners and drones. Collect all eight KEYCHRON keycaps for a shield and a big keyboard bonus.</p>
+            </>
+          )}
         </div>
         <div className="keyboard-guide">
           <div className="guide-item">
             <kbd>SPACE</kbd>
-            <div><b>Jump</b><span>Cones, puddles, barriers, trucks, boxes</span></div>
+            <div><b>Jump</b><span>{HALLOWEEN ? "Pumpkins, slime, gravestones, coffins, skeleton hands, the hearse" : "Cones, puddles, barriers, trucks, boxes"}</span></div>
           </div>
           <div className="guide-item">
             <div className="key-cluster"><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd></div>
-            <div><b>Slide &amp; dodge</b><span>Hold ↓ to slide under signs, banners and drones</span></div>
+            <div><b>Slide &amp; dodge</b><span>{HALLOWEEN ? "Hold ↓ to slide under signs, cobwebs, ghosts and bats" : "Hold ↓ to slide under signs, banners and drones"}</span></div>
           </div>
           <div className="guide-item compact-guide">
             <kbd>ENTER</kbd><div><b>Start / save score</b><span>After the run, type your name and press Enter</span></div>
@@ -4448,11 +4792,11 @@ function PizzaDashGame() {
 
 
       <footer className="site-footer">
-        <span>KEYCHRON × PAX AUS 2026</span>
+        <span>{HALLOWEEN ? "KEYCHRON × HALLOWEEN 2026" : "KEYCHRON × PAX AUS 2026"}</span>
         <a href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">
           PRIVACY POLICY
         </a>
-        <span>READY. SET. TYPE.</span>
+        <span>{HALLOWEEN ? "TRICK. OR. TYPE." : "READY. SET. TYPE."}</span>
       </footer>
     </main>
   );

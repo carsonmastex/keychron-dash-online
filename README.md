@@ -12,6 +12,25 @@ worldwide leaderboard and an admin page for player contact details.
 Runs on Cloudflare: a Worker (`worker/index.ts`) serves the API and the static
 pages in `public/`, and scores live in a D1 database.
 
+## Themes (PAX / Halloween)
+
+The game has two looks, chosen when it is built:
+
+- **Halloween** (default for Halloween 2026): haunted Melbourne, candy, pumpkin
+  keycaps, re-skinned obstacles plus skeleton hands and bats, four power-ups
+  (broom, pumpkin shield, candy magnet, ghost mode) and a haunted stretch every
+  500 m that doubles points for 10 seconds. Art is in `src/halloween.ts`.
+- **PAX**: the original PAX Aus 2026 look.
+
+```bash
+npm run deploy                    # Halloween
+GAME_THEME=pax npm run deploy     # back to PAX
+```
+
+For testing, `?theme=pax` or `?theme=halloween` on the URL overrides the build.
+Obstacle hitboxes and speed are the same in both themes, so the server's
+anti-cheat checks work for both.
+
 ## Embedding on another site
 
 **Full page, auto-height (keychron.com.au):** paste

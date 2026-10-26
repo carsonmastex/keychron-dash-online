@@ -28,10 +28,13 @@ const START_SPEED = 6.6;
 const MAX_SPEED = 14.8;
 const SPEED_GAIN_METRES = 480; // speed = START + distance / 480, up to MAX
 const METRES_PER_SPEED_SECOND = 1.25;
-// Real runs (557 of them, Oct 2026) never beat 1.52 switches or 1,051 points
-// per second of game time; these ceilings leave ~40% headroom.
-const MAX_SWITCHES_PER_GAME_SECOND = 2;
-const MAX_POINTS_PER_GAME_SECOND = 1500;
+// PAX runs (557 real ones, Oct 2026) never beat 1.52 switches or 1,051 points
+// per second of game time. The Halloween theme adds haunted stretches (points
+// x2) and a candy magnet: a bot that never misses a candy peaked at 1.35
+// candy and 1,964 points per game second. These ceilings leave ~50% headroom
+// over that and cover both themes.
+const MAX_SWITCHES_PER_GAME_SECOND = 2.5;
+const MAX_POINTS_PER_GAME_SECOND = 3000;
 // A run that takes this much longer than its game time is flagged for review
 const SLOW_RUN_GRACE_SECONDS = 120;
 const SUBMIT_LIMIT = { count: 5, minutes: 10 };
@@ -116,12 +119,6 @@ function minGameSeconds(distance: number) {
   return k * Math.log(MAX_SPEED / START_SPEED) + (distance - topSpeedAt) / (MAX_SPEED * METRES_PER_SPEED_SECOND);
 }
 
-/** Loose ceiling on score for a run, from the game's scoring rules. */
-function plausibleMaxScore(distance: number, switches: number) {
-  // movement 3.2/m, near-miss bonuses, switch combos, keycaps and keyboard bonuses
-  return Math.ceil(distance * 3.2 + distance * 12 + switches * 800 + 4000);
-}
-
 function sinceIso(minutes: number) {
   return new Date(Date.now() - minutes * 60_000).toISOString();
 }
@@ -153,8 +150,7 @@ async function handleSubmit(request: Request, env: Env, ctx: ExecutionContext) {
   const tooFast = gameSec > elapsedSec * 1.02 + 5; // finished before the game could have
   const tooRich =
     switches > gameSec * MAX_SWITCHES_PER_GAME_SECOND + 15 ||
-    score > gameSec * MAX_POINTS_PER_GAME_SECOND + 15000 ||
-    score > plausibleMaxScore(distance, switches);
+    score > gameSec * MAX_POINTS_PER_GAME_SECOND + 15000;
   if (elapsedSec > 3 * 3600 || tooFast || tooRich) {
     return fail(400, "This score could not be verified. Please play again.");
   }
