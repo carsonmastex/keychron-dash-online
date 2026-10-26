@@ -147,7 +147,7 @@ const BOSS_HP = 3;
 const BOSS_DEFEAT_POINTS = 3000;
 const BOSS_SURVIVE_POINTS = 500;
 const BOMB_SIZE = 44;
-// Pumpkin ghost mini-boss when a haunted stretch (the thunder) ends
+// Pumpkin King mini-boss when a haunted stretch (the thunder) ends
 const MINI_BOSS_HP = 2;
 const MINI_BOSS_FIGHT_SECONDS = 10;
 const MINI_BOSS_DEFEAT_POINTS = 1200;
@@ -936,7 +936,8 @@ function playHalloweenSound(bus: AudioBus, effect: SoundEffect, combo: number, n
       );
       return true;
     case "graze":
-      scheduleNoise(bus, sfx, now, 0.14, 0.025, 1800, "bandpass", 0.7, 0.03);
+      // Soft low "whoosh" (a short high hiss sounded like clicking when bats came in a row)
+      scheduleNoise(bus, sfx, now, 0.26, 0.018, 700, "lowpass", 0.5, 0.07);
       return true;
     case "hit":
       // Pumpkin thud and a ghostly "ooh"
@@ -985,24 +986,44 @@ function playHalloweenSound(bus: AudioBus, effect: SoundEffect, combo: number, n
       bell(now + 0.05, 659.25, 0.025, 0.2);
       return true;
     case "throw":
-      scheduleNoise(bus, sfx, now, 0.14, 0.025, 2000, "bandpass", 0.8, 0.03);
+      scheduleNoise(bus, sfx, now, 0.2, 0.018, 900, "lowpass", 0.5, 0.05);
       return true;
     case "zap":
       // Ghost "poof"
-      tone(now, 0.2, 880, 220, 0.05, "sine");
-      scheduleNoise(bus, sfx, now, 0.18, 0.035, 1500, "bandpass", 0.6);
+      tone(now, 0.25, 660, 220, 0.05, "sine");
+      scheduleNoise(bus, sfx, now, 0.25, 0.025, 800, "lowpass", 0.5, 0.04);
       return true;
     case "shieldbreak":
       scheduleNoise(bus, sfx, now, 0.2, 0.07, 800, "bandpass", 0.8);
       tone(now, 0.22, 330, 140, 0.05, "triangle");
       return true;
-    case "boss":
-      // Witch cackle: "heh-heh-heh-heh" stepping down
-      [784, 740, 698, 659, 622].forEach((frequency, index) => {
-        tone(now + index * 0.1, 0.08, frequency, frequency * 0.9, 0.05, "triangle", index % 2 ? 10 : -10);
-      });
-      scheduleNoise(bus, sfx, now, 0.6, 0.04, 260, "lowpass", 0.8);
+    case "boss": {
+      // Spooky laugh: one smooth gliding voice with a slow tremolo ("ha-ha-ha"),
+      // not a row of short beeps (those sounded like high-pitched clicking)
+      const voice = context.createOscillator();
+      const tremolo = context.createOscillator();
+      const tremoloDepth = context.createGain();
+      const envelope = context.createGain();
+      voice.type = "triangle";
+      voice.frequency.setValueAtTime(520, now);
+      voice.frequency.exponentialRampToValueAtTime(300, now + 0.9);
+      tremolo.frequency.value = 7;
+      tremoloDepth.gain.value = 0.02;
+      envelope.gain.setValueAtTime(0.0001, now);
+      envelope.gain.exponentialRampToValueAtTime(0.035, now + 0.08);
+      envelope.gain.setValueAtTime(0.035, now + 0.65);
+      envelope.gain.exponentialRampToValueAtTime(0.0001, now + 1);
+      tremolo.connect(tremoloDepth);
+      tremoloDepth.connect(envelope.gain);
+      voice.connect(envelope);
+      envelope.connect(sfx);
+      voice.start(now);
+      tremolo.start(now);
+      voice.stop(now + 1.05);
+      tremolo.stop(now + 1.05);
+      tone(now, 1, 110, 82, 0.05, "sine");
       return true;
+    }
     case "grind":
       // Long, soft-edged bursts that overlap into one continuous scrape (no clicking)
       scheduleNoise(bus, sfx, now, 0.42, 0.014, 2400, "bandpass", 0.6, 0.12);
@@ -4604,7 +4625,7 @@ function PizzaDashGame() {
             phase: "enter", timer: 1.5, hp: MINI_BOSS_HP, x: WORLD_WIDTH + 80, y: 200, bombTimer: 1.8, hurt: 0, defeated: false,
           };
           game.milestoneFlash = 1.6;
-          game.milestoneLabel = "PUMPKIN GHOST!";
+          game.milestoneLabel = "PUMPKIN KING!";
           playSound("boss");
         }
         game.lightningAge += dt;
@@ -5177,7 +5198,7 @@ function PizzaDashGame() {
                 game.scorePopups.push({
                   x: WORLD_WIDTH / 2,
                   y: 250,
-                  text: `${boss.kind === "pumpkin" ? "PUMPKIN GHOST" : "WITCH"} DEFEATED! +${defeat}`,
+                  text: `${boss.kind === "pumpkin" ? "PUMPKIN KING" : "WITCH"} DEFEATED! +${defeat}`,
                   timer: 1.6,
                   duration: 1.6,
                   color: "#7ee04a",
@@ -5737,7 +5758,7 @@ function PizzaDashGame() {
           {HALLOWEEN ? (
             <>
               <h2>Survive Halloween night</h2>
-              <p>You skate automatically and speed up the further you go. Jump over pumpkins, gravestones, slime, coffins, skeleton hands and the hearse, or jump right ON pumpkins, coffins and hands to smash them. Slide under signs, cobwebs, ghosts and bats, and stay low under flying witches. Every candy you grab is ammo: press Space to throw it and zap ghosts, bats and witches, or tear down a cobweb (then stomp the spider that drops out). When the thunder stops, the Pumpkin Ghost attacks (hit it twice), and every 1,000 m the witch attacks: dodge their pumpkin bombs or hit her 3 times. Knock on doors for a treat (or a trick!), grab power-ups, and enjoy double points in the haunted stretches. Jump onto graveyard rails to grind (keep your balance with ← → for up to x3 points), take the rooftop route for extra candy and gap-jump tricks, and complete the missions at the top of the screen.</p>
+              <p>You skate automatically and speed up the further you go. Jump over pumpkins, gravestones, slime, coffins, skeleton hands and the hearse, or jump right ON pumpkins, coffins and hands to smash them. Slide under signs, cobwebs, ghosts and bats, and stay low under flying witches. Every candy you grab is ammo: press Space to throw it and zap ghosts, bats and witches, or tear down a cobweb (then stomp the spider that drops out). When the thunder stops, the Pumpkin King attacks (hit it twice), and every 1,000 m the witch attacks: dodge their pumpkin bombs or hit her 3 times. Knock on doors for a treat (or a trick!), grab power-ups, and enjoy double points in the haunted stretches. Jump onto graveyard rails to grind (keep your balance with ← → for up to x3 points), take the rooftop route for extra candy and gap-jump tricks, and complete the missions at the top of the screen.</p>
             </>
           ) : (
             <>

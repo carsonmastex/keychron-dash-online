@@ -299,15 +299,17 @@ button {
   filter: invert(1);
 }
 
-/* Halloween jack-o'-lantern logo is already in colour: no invert, a bit bigger */
+/* Halloween logo (white logo + pumpkin) is already coloured: no invert.
+   The logo is 200/256 of the image, so the image is drawn a bit bigger. */
 .keychron-logo.pumpkin-logo,
 .result-keychron-logo.pumpkin-logo {
-  filter: drop-shadow(0 0 6px rgba(255, 140, 0, .45));
+  filter: none;
 }
 
 .keychron-logo.pumpkin-logo {
-  height: 44px;
-  width: 44px;
+  height: 46px;
+  width: 46px;
+  margin-top: -10px;
 }
 
 .result-pax-logo {

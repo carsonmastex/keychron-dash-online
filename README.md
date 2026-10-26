@@ -20,7 +20,7 @@ The game has two looks, chosen when it is built:
   keycaps, re-skinned obstacles plus skeleton hands and bats, four power-ups
   (broom, shield, candy magnet, ghost mode), haunted stretches at
   500, 1,500, 2,500 m ... (points x2 for 10 s, with lightning and thunder)
-  each followed by a Pumpkin Ghost mini-boss, stomping (jump on pumpkins,
+  each followed by a Pumpkin King mini-boss (a big crowned jack-o'-lantern), stomping (jump on pumpkins,
   coffins, hands, the hearse, bombs and spiders), throwing candy with Space
   (auto-aims at ghosts, bats, witches and cobwebs; a torn cobweb drops its
   spider onto the road), a witch boss every 1,000 m, and trick-or-treat

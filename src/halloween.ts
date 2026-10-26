@@ -340,6 +340,53 @@ export type SpookyScene = {
   lightningSeed: number; // shape of the bolt
 };
 
+// ---- Pre-drawn background pieces (made once, reused every frame) ----
+let normalSky: CanvasGradient | null = null;
+let puffSprite: HTMLCanvasElement | null = null;
+type SkylineStrip = {
+  canvas: HTMLCanvasElement;
+  flickerWindows: { x: number; y: number; wx: number; wall: string }[];
+};
+let skylineStrip: SkylineStrip | null = null;
+
+/** One 980 px repeat of the far skyline: towers, lit windows and the spire. */
+function getSkylineStrip(): SkylineStrip {
+  if (skylineStrip) return skylineStrip;
+  const canvas = document.createElement("canvas");
+  canvas.width = 980;
+  canvas.height = GROUND_Y;
+  const flickerWindows: SkylineStrip["flickerWindows"] = [];
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    const buildings = [
+      { x: 0, w: 140, h: 190 },
+      { x: 148, w: 118, h: 244 },
+      { x: 274, w: 182, h: 165 },
+      { x: 464, w: 132, h: 218 },
+      { x: 604, w: 190, h: 184 },
+      { x: 802, w: 150, h: 258 },
+    ];
+    buildings.forEach((b, index) => {
+      const top = GROUND_Y - 76 - b.h;
+      const wall = index % 2 ? "#271a3d" : "#2f2048";
+      ctx.fillStyle = wall;
+      ctx.fillRect(b.x, top, b.w, b.h);
+      for (let wx = 18; wx < b.w - 12; wx += 34) {
+        for (let wy = 22; wy < b.h - 14; wy += 42) {
+          const seed = (wx * 7 + wy * 13 + index * 31) % 11;
+          if (seed > 5) continue;
+          ctx.fillStyle = seed % 3 === 0 ? "rgba(185,138,240,.75)" : "rgba(255,170,70,.85)";
+          ctx.fillRect(b.x + wx, top + wy, 13, 18);
+          if (seed === 1) flickerWindows.push({ x: b.x + wx, y: top + wy, wx, wall });
+        }
+      }
+    });
+    drawSpire(ctx, 330, GROUND_Y - 76);
+  }
+  skylineStrip = { canvas, flickerWindows };
+  return skylineStrip;
+}
+
 export function drawHalloweenBackground(
   ctx: CanvasRenderingContext2D,
   scene: SpookyScene,
@@ -349,10 +396,21 @@ export function drawHalloweenBackground(
   const hauntedMix = clamp(scene.haunted > 0 ? Math.min(1, scene.haunted * 2, (10 - scene.haunted) * 2 + 0.4) : 0, 0, 1);
 
   // Sky: deep purple to a warm orange glow at the horizon
-  const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-  sky.addColorStop(0, hauntedMix > 0 ? mix("#1d1236", "#0d0818", hauntedMix) : "#1d1236");
-  sky.addColorStop(0.55, hauntedMix > 0 ? mix("#4a2470", "#2a1240", hauntedMix) : "#4a2470");
-  sky.addColorStop(1, hauntedMix > 0 ? mix("#d9692b", "#7a2f4a", hauntedMix) : "#d9692b");
+  let sky: CanvasGradient;
+  if (hauntedMix > 0) {
+    sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+    sky.addColorStop(0, mix("#1d1236", "#0d0818", hauntedMix));
+    sky.addColorStop(0.55, mix("#4a2470", "#2a1240", hauntedMix));
+    sky.addColorStop(1, mix("#d9692b", "#7a2f4a", hauntedMix));
+  } else {
+    if (!normalSky) {
+      normalSky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+      normalSky.addColorStop(0, "#1d1236");
+      normalSky.addColorStop(0.55, "#4a2470");
+      normalSky.addColorStop(1, "#d9692b");
+    }
+    sky = normalSky;
+  }
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
@@ -403,30 +461,19 @@ export function drawHalloweenBackground(
   const skylineOffset = (scroll * 0.22) % 980;
   for (let repeat = -1; repeat < 3; repeat += 1) {
     const origin = repeat * 980 - skylineOffset;
-    const buildings = [
-      { x: 0, w: 140, h: 190 },
-      { x: 148, w: 118, h: 244 },
-      { x: 274, w: 182, h: 165 },
-      { x: 464, w: 132, h: 218 },
-      { x: 604, w: 190, h: 184 },
-      { x: 802, w: 150, h: 258 },
-    ];
-    buildings.forEach((b, index) => {
-      const top = GROUND_Y - 76 - b.h;
-      ctx.fillStyle = index % 2 ? "#271a3d" : "#2f2048";
-      ctx.fillRect(origin + b.x, top, b.w, b.h);
-      for (let wx = 18; wx < b.w - 12; wx += 34) {
-        for (let wy = 22; wy < b.h - 14; wy += 42) {
-          const seed = (wx * 7 + wy * 13 + index * 31) % 11;
-          if (seed > 5) continue;
-          const flicker = hauntedMix > 0 && seed === 1 && Math.sin(elapsed * 9 + wx) > 0.6 ? 0.25 : 1;
-          ctx.fillStyle = seed % 3 === 0 ? `rgba(185,138,240,${0.75 * flicker})` : `rgba(255,170,70,${0.85 * flicker})`;
-          ctx.fillRect(origin + b.x + wx, top + wy, 13, 18);
-        }
+    // Buildings, windows and the spire never change: drawn once, reused every frame
+    const strip = getSkylineStrip();
+    ctx.drawImage(strip.canvas, origin, 0);
+    if (hauntedMix > 0) {
+      // A few windows flicker during a haunted stretch
+      for (const win of strip.flickerWindows) {
+        if (Math.sin(elapsed * 9 + win.wx) <= 0.6) continue;
+        ctx.fillStyle = win.wall;
+        ctx.globalAlpha = 0.72;
+        ctx.fillRect(origin + win.x, win.y, 13, 18);
+        ctx.globalAlpha = 1;
       }
-    });
-    // Eureka-style spire and a haunted house on the skyline
-    drawSpire(ctx, origin + 330, GROUND_Y - 76);
+    }
     drawHauntedHouse(ctx, origin + 640, GROUND_Y - 76, elapsed);
   }
 
@@ -1491,7 +1538,7 @@ export const BOSS_H = 120;
 
 export function drawWitchBoss(ctx: CanvasRenderingContext2D, boss: WitchBoss, elapsed: number) {
   if (boss.kind === "pumpkin") {
-    drawPumpkinGhostBoss(ctx, boss, elapsed);
+    drawPumpkinKingBoss(ctx, boss, elapsed);
     return;
   }
   const { x, y } = boss;
@@ -1574,28 +1621,65 @@ export function drawWitchBoss(ctx: CanvasRenderingContext2D, boss: WitchBoss, el
   ctx.restore();
 }
 
-/** Mini-boss: a big ghost with a jack-o'-lantern head (same box as the witch). */
-function drawPumpkinGhostBoss(ctx: CanvasRenderingContext2D, boss: WitchBoss, elapsed: number) {
+/** Mini-boss: the Pumpkin King, a big floating jack-o'-lantern with a crown and purple flames (same box as the witch). */
+function drawPumpkinKingBoss(ctx: CanvasRenderingContext2D, boss: WitchBoss, elapsed: number) {
   const cx = boss.x + BOSS_W / 2;
   const cy = boss.y + BOSS_H / 2;
+  const tilt = Math.sin(elapsed * 2.4) * 0.08;
   ctx.save();
   if (boss.hurt > 0 && Math.floor(boss.hurt * 20) % 2 === 0) ctx.globalAlpha = 0.45;
-  // Ghost sheet body, slightly see-through
-  ctx.globalAlpha *= 0.92;
-  drawGhostShape(ctx, cx, cy + 22, 120, elapsed, "#e9e4ff", "#c3b8ec");
-  ctx.globalAlpha = boss.hurt > 0 && Math.floor(boss.hurt * 20) % 2 === 0 ? 0.45 : 1;
-  // Arms waving
-  ctx.strokeStyle = "#e9e4ff";
-  ctx.lineWidth = 12;
+  // Purple flames flickering under it (what keeps it floating)
+  for (let k = 0; k < 5; k += 1) {
+    const fx = cx - 44 + k * 22;
+    const len = 26 + Math.sin(elapsed * 14 + k * 1.9) * 9 + (k % 2) * 8;
+    ctx.fillStyle = k % 2 ? "rgba(185,138,240,.85)" : "rgba(123,63,191,.9)";
+    ctx.beginPath();
+    ctx.moveTo(fx - 10, cy + 34);
+    ctx.quadraticCurveTo(fx - 6, cy + 34 + len * 0.6, fx + Math.sin(elapsed * 10 + k) * 4, cy + 34 + len);
+    ctx.quadraticCurveTo(fx + 6, cy + 34 + len * 0.6, fx + 10, cy + 34);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.translate(cx, cy);
+  ctx.rotate(tilt);
+  // Warm glow behind the face
+  ctx.fillStyle = "rgba(255,170,60,.18)";
+  ctx.beginPath();
+  ctx.arc(0, 4, 82, 0, Math.PI * 2);
+  ctx.fill();
+  // Big lit jack-o'-lantern
+  drawPumpkin(ctx, -70, -50, 140, 112, true, elapsed);
+  // Angry brows over the eyes
+  ctx.strokeStyle = "#5a1f00";
+  ctx.lineWidth = 5;
   ctx.lineCap = "round";
   for (const side of [-1, 1]) {
     ctx.beginPath();
-    ctx.moveTo(cx + side * 50, cy + 18);
-    ctx.lineTo(cx + side * 78, cy + 2 + Math.sin(elapsed * 6 + side) * 12);
+    ctx.moveTo(side * 40, -26);
+    ctx.lineTo(side * 10, -16);
     ctx.stroke();
   }
-  // Jack-o'-lantern head, lit
-  drawPumpkin(ctx, cx - 46, cy - 62, 92, 78, true, elapsed);
+  // Gold crown on top
+  ctx.fillStyle = "#ffd84e";
+  ctx.beginPath();
+  ctx.moveTo(-30, -44);
+  ctx.lineTo(-34, -78);
+  ctx.lineTo(-16, -60);
+  ctx.lineTo(0, -86);
+  ctx.lineTo(16, -60);
+  ctx.lineTo(34, -78);
+  ctx.lineTo(30, -44);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "#b8860b";
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  ctx.fillStyle = "#e23b5a";
+  for (const gx of [-18, 0, 18]) {
+    ctx.beginPath();
+    ctx.arc(gx, -52, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }
 
@@ -1616,7 +1700,7 @@ export function drawBossHud(ctx: CanvasRenderingContext2D, boss: WitchBoss, keyL
   ctx.fillStyle = SPOOKY.slime;
   ctx.font = "900 15px 'Courier New', monospace";
   ctx.textAlign = "left";
-  const name = boss.kind === "pumpkin" ? "PUMPKIN GHOST" : "WITCH";
+  const name = boss.kind === "pumpkin" ? "PUMPKIN KING" : "WITCH";
   const label = boss.defeated
     ? `${name} DEFEATED!`
     : boss.phase === "leave"
@@ -1817,16 +1901,25 @@ export function drawFogCurse(ctx: CanvasRenderingContext2D, elapsed: number, str
 /** Soft-edged fog puff: fades smoothly to nothing, so there is no visible outline. */
 function softPuff(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number, ry: number, alpha: number) {
   if (alpha <= 0) return;
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.scale(1, ry / rx);
-  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
-  g.addColorStop(0, `rgba(222,212,242,${alpha})`);
-  g.addColorStop(0.5, `rgba(222,212,242,${alpha * 0.55})`);
-  g.addColorStop(1, "rgba(222,212,242,0)");
-  ctx.fillStyle = g;
-  ctx.fillRect(-rx, -rx, rx * 2, rx * 2);
-  ctx.restore();
+  // One pre-drawn puff, stretched and faded per use (cheaper than a new gradient every frame)
+  if (!puffSprite) {
+    puffSprite = document.createElement("canvas");
+    puffSprite.width = 256;
+    puffSprite.height = 256;
+    const p = puffSprite.getContext("2d");
+    if (p) {
+      const g = p.createRadialGradient(128, 128, 0, 128, 128, 128);
+      g.addColorStop(0, "rgba(222,212,242,1)");
+      g.addColorStop(0.5, "rgba(222,212,242,.55)");
+      g.addColorStop(1, "rgba(222,212,242,0)");
+      p.fillStyle = g;
+      p.fillRect(0, 0, 256, 256);
+    }
+  }
+  const previous = ctx.globalAlpha;
+  ctx.globalAlpha = previous * Math.min(1, alpha);
+  ctx.drawImage(puffSprite, x - rx, y - ry, rx * 2, ry * 2);
+  ctx.globalAlpha = previous;
 }
 
 /** Full-width horizontal fog band that fades out above and below. */
@@ -2063,9 +2156,9 @@ function mix(a: string, b: string, t: number) {
 // ---------------------------------------------------------------------------
 
 /**
- * The round Keychron logo as a jack-o'-lantern: the black disc becomes a ribbed
- * orange pumpkin with a stem, and the C / TK (cut out of the logo) glow like
- * carved candlelight. Returns a PNG data URL (or null if the logo isn't loaded).
+ * The round Keychron logo (white, as on the page) with a little jack-o'-lantern
+ * sitting tilted on its top-right edge, like a hat. Returns a PNG data URL
+ * (or null if the logo isn't loaded). The logo fills 200 of the 256 px.
  */
 export function makePumpkinKeychronLogo(logo: HTMLImageElement, size = 256): string | null {
   if (!logo.complete || logo.naturalWidth === 0) return null;
@@ -2074,76 +2167,20 @@ export function makePumpkinKeychronLogo(logo: HTMLImageElement, size = 256): str
   canvas.height = size;
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
-  const c = size / 2;
-  const r = size * 0.4; // pumpkin body radius, leaving room for the stem
-  const cy = c + size * 0.06;
-
-  // Body: overlapping lobes, darker towards the edges
-  const lobes = [-0.62, -0.32, 0.32, 0.62, 0];
-  for (const dx of lobes) {
-    const g = ctx.createRadialGradient(c + dx * r - r * 0.15, cy - r * 0.35, r * 0.1, c + dx * r, cy, r * 1.05);
-    g.addColorStop(0, SPOOKY.pumpkinLight);
-    g.addColorStop(0.6, SPOOKY.pumpkin);
-    g.addColorStop(1, SPOOKY.pumpkinDark);
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.ellipse(c + dx * r, cy, r * (dx === 0 ? 0.6 : 0.5), r * 0.98, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.strokeStyle = "rgba(122,44,0,.45)";
-  ctx.lineWidth = size * 0.012;
-  for (const dx of [-0.42, 0.42]) {
-    ctx.beginPath();
-    ctx.ellipse(c + dx * r * 0.5, cy, r * 0.42, r * 0.95, 0, -Math.PI / 2, Math.PI / 2, dx < 0);
-    ctx.stroke();
-  }
-
-  // Carved letters: take the transparent C / TK out of the logo disc
-  const mask = document.createElement("canvas");
-  mask.width = size;
-  mask.height = size;
-  const m = mask.getContext("2d");
-  if (!m) return null;
-  const logoSize = r * 1.7;
-  const lx = c - logoSize / 2;
-  const ly = cy - logoSize / 2;
-  m.fillStyle = "#fff";
-  m.beginPath();
-  m.arc(c, cy, logoSize * 0.46, 0, Math.PI * 2); // a bit inside the disc edge
-  m.fill();
-  m.globalCompositeOperation = "destination-out";
-  m.drawImage(logo, lx, ly, logoSize, logoSize);
-  // What's left is the letters: colour them candle yellow
-  m.globalCompositeOperation = "source-in";
-  m.fillStyle = "#ffe066";
-  m.fillRect(0, 0, size, size);
-  // Dark carved rim first, then the glow on top
+  const k = size / 256;
+  // White logo: draw it, then paint white only where it is opaque
+  const logoSize = 200 * k;
+  const ly = size - logoSize;
+  ctx.drawImage(logo, 0, ly, logoSize, logoSize);
+  ctx.globalCompositeOperation = "source-in";
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, size, size);
+  ctx.globalCompositeOperation = "source-over";
+  // Small pumpkin perched on the top-right of the circle, tilted
   ctx.save();
-  ctx.globalAlpha = 0.85;
-  ctx.filter = "brightness(0)";
-  ctx.drawImage(mask, size * 0.012, size * 0.016);
+  ctx.translate(176 * k, 74 * k);
+  ctx.rotate(0.38);
+  drawPumpkin(ctx, -46 * k, -42 * k, 92 * k, 78 * k, true, 0);
   ctx.restore();
-  ctx.save();
-  ctx.shadowColor = "#ffb300";
-  ctx.shadowBlur = size * 0.06;
-  ctx.drawImage(mask, 0, 0);
-  ctx.restore();
-
-  // Stem and a curly vine
-  ctx.fillStyle = SPOOKY.stem;
-  ctx.beginPath();
-  ctx.moveTo(c - size * 0.05, cy - r * 0.92);
-  ctx.quadraticCurveTo(c - size * 0.04, cy - r * 1.18, c + size * 0.03, cy - r * 1.28);
-  ctx.lineTo(c + size * 0.07, cy - r * 1.2);
-  ctx.quadraticCurveTo(c + size * 0.02, cy - r * 1.1, c + size * 0.05, cy - r * 0.92);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = SPOOKY.stem;
-  ctx.lineWidth = size * 0.014;
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  ctx.moveTo(c + size * 0.04, cy - r * 1.0);
-  ctx.bezierCurveTo(c + size * 0.16, cy - r * 1.2, c + size * 0.2, cy - r * 0.95, c + size * 0.14, cy - r * 0.98);
-  ctx.stroke();
   return canvas.toDataURL("image/png");
 }
