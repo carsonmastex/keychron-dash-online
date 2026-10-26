@@ -22,7 +22,9 @@ The game has two looks, chosen when it is built:
   500, 1,500, 2,500 m ... (points x2 for 10 s), stomping (jump on pumpkins,
   coffins, hands, the hearse and bombs), throwing candy with X (auto-aims at
   ghosts, bats and witches), a witch boss every 1,000 m, and trick-or-treat
-  doors (X to knock). Art is in `src/halloween.ts`.
+  doors (X to knock), graveyard rails to grind, rooftop routes with gaps,
+  and missions at the top of the screen. The candy combo bonus stops
+  growing at 30 in this theme. Art is in `src/halloween.ts`.
 - **PAX**: the original PAX Aus 2026 look.
 
 ```bash

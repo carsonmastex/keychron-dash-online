@@ -1672,6 +1672,136 @@ export function drawDoorResult(ctx: CanvasRenderingContext2D, text: string, trea
   ctx.restore();
 }
 
+// ---------------------------------------------------------------------------
+// Rails and rooftops (platforms you can land on from above)
+// ---------------------------------------------------------------------------
+
+export type Platform = { id: number; kind: "rail" | "roof"; x: number; width: number; top: number };
+
+/** Graveyard iron rail on posts. */
+export function drawRail(ctx: CanvasRenderingContext2D, rail: Platform, elapsed: number, grinding: boolean) {
+  const { x, width, top } = rail;
+  ctx.save();
+  // Posts down to the road
+  ctx.fillStyle = "#2b2633";
+  for (let px = x + 16; px < x + width - 8; px += 120) {
+    ctx.fillRect(px, top + 6, 8, GROUND_Y - top - 6);
+    ctx.fillStyle = "#3b3546";
+    ctx.fillRect(px - 4, GROUND_Y - 6, 16, 6);
+    ctx.fillStyle = "#2b2633";
+  }
+  // Rail bar with a shine, and spiky finials at both ends
+  ctx.fillStyle = "#4a4458";
+  roundedRect(ctx, x, top, width, 10, 5);
+  ctx.fill();
+  ctx.fillStyle = grinding ? "#ffd84e" : "#bdb4d6";
+  ctx.fillRect(x + 6, top + 1, width - 12, 3);
+  for (const ex of [x - 2, x + width - 10]) {
+    ctx.fillStyle = "#2b2633";
+    ctx.fillRect(ex, top - 14, 12, 24);
+    ctx.beginPath();
+    ctx.moveTo(ex - 2, top - 14);
+    ctx.lineTo(ex + 6, top - 26);
+    ctx.lineTo(ex + 14, top - 14);
+    ctx.closePath();
+    ctx.fill();
+  }
+  // Little "GRIND" tag so players know they can land on it
+  if (!grinding) {
+    const bob = Math.sin(elapsed * 4 + x * 0.01) * 3;
+    ctx.fillStyle = "rgba(21,10,34,.85)";
+    roundedRect(ctx, x + width / 2 - 34, top - 34 + bob, 68, 20, 7);
+    ctx.fill();
+    ctx.fillStyle = "#ffd84e";
+    ctx.font = "900 12px 'Courier New', monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("GRIND", x + width / 2, top - 20 + bob);
+    ctx.textAlign = "left";
+  }
+  ctx.restore();
+}
+
+/** Raised stone rooftop / bridge slab on pillars; the road stays visible under it. */
+export function drawRooftop(ctx: CanvasRenderingContext2D, roof: Platform, elapsed: number) {
+  const { x, width, top } = roof;
+  ctx.save();
+  // Pillars
+  ctx.fillStyle = "#2a2236";
+  for (const px of [x + 18, x + width - 40]) {
+    ctx.fillRect(px, top + 22, 22, GROUND_Y - top - 22);
+  }
+  // Slab: thick tiled top with a light walking edge, dark face below
+  ctx.fillStyle = "#15101d";
+  ctx.fillRect(x - 6, top - 2, width + 12, 34);
+  ctx.fillStyle = "#3a2e4d";
+  ctx.fillRect(x - 4, top + 12, width + 8, 18);
+  ctx.fillStyle = "#7a5442";
+  ctx.fillRect(x - 4, top, width + 8, 12);
+  ctx.fillStyle = "#9c7058";
+  for (let tx = x; tx < x + width; tx += 26) ctx.fillRect(tx, top + 2, 20, 5);
+  ctx.fillStyle = "#f2d3a8";
+  ctx.fillRect(x - 4, top, width + 8, 2);
+  // Edge lanterns
+  for (const lx of [x + 8, x + width - 16]) {
+    ctx.fillStyle = "#1b1220";
+    ctx.fillRect(lx + 3, top - 18, 2, 18);
+    const flicker = 0.75 + Math.sin(elapsed * 9 + lx) * 0.2;
+    ctx.fillStyle = `rgba(255,190,80,${flicker})`;
+    ctx.fillRect(lx, top - 26, 8, 9);
+  }
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Missions
+// ---------------------------------------------------------------------------
+
+export type MissionKind = "smash" | "zap" | "grind" | "candy" | "combo" | "door" | "roof" | "powerup";
+export type Mission = { kind: MissionKind; target: number; progress: number; level: number };
+
+export function missionText(m: Mission) {
+  switch (m.kind) {
+    case "smash": return `Stomp on ${m.target} spooky things`;
+    case "zap": return `Zap ${m.target} ghosts or bats`;
+    case "grind": return `Grind for ${m.target} seconds`;
+    case "candy": return `Grab ${m.target} candy`;
+    case "combo": return `Get a ${m.target}x candy combo`;
+    case "door": return m.target === 1 ? "Knock on a door" : `Knock on ${m.target} doors`;
+    case "roof": return m.target === 1 ? "Land on a rooftop" : `Land on ${m.target} rooftops`;
+    case "powerup": return m.target === 1 ? "Grab a power-up" : `Grab ${m.target} power-ups`;
+  }
+}
+
+/** Mission card at the top centre, between the score and lives panels. */
+export function drawMissionHud(ctx: CanvasRenderingContext2D, m: Mission, doneFlash: number) {
+  const x = 562;
+  const y = 24;
+  const w = 422;
+  ctx.save();
+  ctx.fillStyle = doneFlash > 0 ? "rgba(126,224,74,.9)" : "rgba(21,18,28,.86)";
+  roundedRect(ctx, x, y, w, 78, 18);
+  ctx.fill();
+  ctx.fillStyle = doneFlash > 0 ? "#15121c" : SPOOKY.purpleLight;
+  ctx.font = "800 14px 'Courier New', monospace";
+  ctx.fillText(doneFlash > 0 ? "MISSION COMPLETE!" : `MISSION ${m.level}`, x + 20, y + 25);
+  ctx.fillStyle = doneFlash > 0 ? "#15121c" : "#ffffff";
+  ctx.font = "900 19px Arial";
+  ctx.fillText(missionText(m), x + 20, y + 52);
+  const shown = Math.min(m.progress, m.target);
+  const label = m.kind === "grind" ? `${shown.toFixed(1)}/${m.target}` : `${Math.floor(shown)}/${m.target}`;
+  ctx.font = "900 15px 'Courier New', monospace";
+  ctx.textAlign = "right";
+  ctx.fillText(label, x + w - 18, y + 52);
+  ctx.textAlign = "left";
+  ctx.fillStyle = "rgba(255,255,255,.18)";
+  roundedRect(ctx, x + 20, y + 62, w - 40, 7, 3.5);
+  ctx.fill();
+  ctx.fillStyle = doneFlash > 0 ? "#15121c" : SPOOKY.pumpkin;
+  roundedRect(ctx, x + 20, y + 62, Math.max(7, (w - 40) * clamp(m.progress / m.target, 0, 1)), 7, 3.5);
+  ctx.fill();
+  ctx.restore();
+}
+
 /** Banner at the top while a haunted stretch is on. */
 export function drawHauntedBanner(ctx: CanvasRenderingContext2D, haunted: number, elapsed: number) {
   if (haunted <= 0) return;

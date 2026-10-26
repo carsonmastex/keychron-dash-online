@@ -31,6 +31,12 @@ import {
   drawKnockHint,
   drawProjectile,
   drawWitchBoss,
+  drawRail,
+  drawRooftop,
+  drawMissionHud,
+  type Mission,
+  type MissionKind,
+  type Platform,
   type ActivePower,
   type Door,
   type PowerUpItem,
@@ -141,6 +147,39 @@ const DOOR_GAP_MIN = 22;
 const DOOR_GAP_RANDOM = 10;
 const TREAT_POINTS = 500;
 const CURSE_SECONDS = 5;
+// Rails and rooftop routes (one-way platforms: land on them from above)
+const PLATFORM_FIRST_SECONDS = 14;
+const PLATFORM_GAP_MIN = 10;
+const PLATFORM_GAP_RANDOM = 6;
+const RAIL_TOP = GROUND_Y - 118; // clears the tallest jump obstacle (boxes, 104)
+const ROOF_TOP = GROUND_Y - 150;
+const GRIND_POINTS_PER_SECOND = 80;
+// While a rail or rooftop is around, only ground obstacles spawn (nothing at head height up there)
+const OVERHEAD_KINDS = new Set<ObstacleKind>(["sign", "banner", "plane", "drone", "bats"]);
+// Missions
+const MISSION_KINDS: MissionKind[] = ["smash", "zap", "grind", "candy", "combo", "door", "roof", "powerup"];
+const MISSION_POINTS_BASE = 300;
+const MISSION_POINTS_PER_LEVEL = 200;
+const MISSION_AMMO = 3;
+// Candy combo bonus stops growing here (keeps scores within the server's limits;
+// rooftop candy makes very long combos easy)
+const COMBO_CAP = 30;
+
+function makeMission(level: number, previous?: MissionKind): Mission {
+  const choices = MISSION_KINDS.filter((kind) => kind !== previous);
+  const kind = choices[Math.floor(Math.random() * choices.length)];
+  const targets: Record<MissionKind, number> = {
+    smash: Math.min(8, 2 + level),
+    zap: Math.min(8, 2 + level),
+    grind: Math.min(5, 1 + Math.ceil(level / 2)), // seconds; one rail gives about 1-2 s
+    candy: Math.min(60, 10 + level * 5),
+    combo: Math.min(24, 6 + level * 2),
+    door: 1 + Math.floor(level / 3),
+    roof: 1 + Math.floor(level / 2),
+    powerup: 1 + Math.floor(level / 3),
+  };
+  return { kind, target: targets[kind], progress: 0, level };
+}
 
 type Player = {
   x: number;
@@ -293,6 +332,12 @@ type GameState = {
   curse: { kind: "mirror" | "fog"; timer: number } | null;
   doorResult: { text: string; treat: boolean; timer: number } | null;
   actionQueued: boolean; // X / candy button pressed: knock if at a door, else throw
+  platforms: Platform[];
+  platformTimer: number;
+  onPlatform: number | null; // id of the rail/roof the rider is standing on
+  grindPoints: number; // points from the current grind (shown when it ends)
+  mission: Mission;
+  missionFlash: number; // "MISSION COMPLETE" time left; the next mission starts after
 };
 
 type Hud = {
@@ -404,6 +449,12 @@ const freshGame = (): GameState => ({
   curse: null,
   doorResult: null,
   actionQueued: false,
+  platforms: [],
+  platformTimer: PLATFORM_FIRST_SECONDS,
+  onPlatform: null,
+  grindPoints: 0,
+  mission: makeMission(1),
+  missionFlash: 0,
 });
 
 const clamp = (value: number, min: number, max: number) =>
@@ -3104,7 +3155,10 @@ function drawHud(
     ctx.translate(WORLD_WIDTH / 2, 150);
     const breathe = 1 + Math.sin(state.elapsed * 4) * 0.055;
     ctx.scale(breathe, breathe);
-    const comboLabel = `${state.combo}× ${HALLOWEEN ? "CANDY" : "SWITCH"} COMBO!`;
+    const comboLabel =
+      HALLOWEEN && state.combo >= COMBO_CAP
+        ? `${state.combo}× MAX CANDY COMBO!`
+        : `${state.combo}× ${HALLOWEEN ? "CANDY" : "SWITCH"} COMBO!`;
     ctx.font = "900 28px Arial";
     const comboWidth = Math.ceil(ctx.measureText(comboLabel).width) + 44;
     const comboHeight = 52;
@@ -3320,7 +3374,7 @@ function drawOverlay(
     if (HALLOWEEN) {
       ctx.fillStyle = "rgba(255,255,255,.62)";
       ctx.font = "700 15px Arial";
-      ctx.fillText("Jump ON pumpkins, coffins and hands to smash them · Knock on doors for a treat (or a trick!)", WORLD_WIDTH / 2, 548);
+      ctx.fillText("Stomp pumpkins · Grind rails · Take the rooftop route · Knock on doors · Complete missions", WORLD_WIDTH / 2, 548);
     }
   }
 
@@ -3771,11 +3825,14 @@ function PizzaDashGame() {
     if (HALLOWEEN && gameRef.current.broomLift > 0) return;
     const player = gameRef.current.player;
     if (player.grounded) {
-      player.sliding = false;
-      player.height = 116;
-      player.y = GROUND_Y - player.height;
+      if (player.sliding) {
+        player.sliding = false;
+        player.height = 116;
+        player.y = GROUND_Y - player.height;
+      }
       player.velocityY = -1030;
       player.grounded = false;
+      gameRef.current.onPlatform = null; // jumping off a rail or rooftop
       playSound("jump");
     }
   }, [playSound]);
@@ -4008,8 +4065,10 @@ function PizzaDashGame() {
     const spawnObstacle = (game: GameState) => {
       const available = OBSTACLE_TABLE.filter((entry) => game.distance >= entry.from);
       // Haunted stretch: ghosts (drone) and bats come out more often. Same spawn rate overall.
-      const weightOf = (entry: (typeof OBSTACLE_TABLE)[number]) =>
-        HALLOWEEN && game.haunted > 0 && (entry.kind === "drone" || entry.kind === "bats") ? entry.weight * 2.5 : entry.weight;
+      const weightOf = (entry: (typeof OBSTACLE_TABLE)[number]) => {
+        if (HALLOWEEN && game.platforms.length > 0 && OVERHEAD_KINDS.has(entry.kind)) return 0;
+        return HALLOWEEN && game.haunted > 0 && (entry.kind === "drone" || entry.kind === "bats") ? entry.weight * 2.5 : entry.weight;
+      };
       let roll = Math.random() * available.reduce((sum, entry) => sum + weightOf(entry), 0);
       let kind: ObstacleKind = available[0].kind;
       for (const entry of available) {
@@ -4138,13 +4197,18 @@ function PizzaDashGame() {
       // Halloween haunted stretch doubles every point earned while it lasts
       const mult = HALLOWEEN && game.haunted > 0 ? HAUNTED_POINTS_MULTIPLIER : 1;
       game.score += game.speed * dt * 4 * mult;
+      // Halloween missions: count progress (paused while "MISSION COMPLETE" shows)
+      const missionEvent = (kind: MissionKind, amount = 1) => {
+        if (!HALLOWEEN || game.missionFlash > 0 || game.mission.kind !== kind) return;
+        game.mission.progress = kind === "combo" ? Math.max(game.mission.progress, amount) : game.mission.progress + amount;
+      };
 
       const steer = Number(keysRef.current.right) - Number(keysRef.current.left);
       const mirrored = HALLOWEEN && game.curse?.kind === "mirror";
       const horizontal = (mirrored ? -steer : steer) * 330 * dt;
       player.x = clamp(player.x + horizontal, 92, 420);
 
-      const wantsSlide = keysRef.current.down && player.grounded;
+      const wantsSlide = keysRef.current.down && player.grounded && !(HALLOWEEN && game.onPlatform !== null);
       if (wantsSlide && !player.sliding) {
         player.sliding = true;
         player.height = 74;
@@ -4155,15 +4219,44 @@ function PizzaDashGame() {
         player.y = GROUND_Y - player.height;
       }
 
+      // Board span used for landing on rails and rooftops
+      const feetLeft = player.x + 30;
+      const feetRight = player.x + 122;
       if (!player.grounded) {
+        const feetBefore = player.y + player.height;
         player.velocityY += 2450 * dt;
         if (keysRef.current.down) player.velocityY += 1350 * dt;
         player.y += player.velocityY * dt;
-        if (player.y >= GROUND_Y - player.height) {
+        const feetAfter = player.y + player.height;
+        const landOn =
+          HALLOWEEN && player.velocityY > 0
+            ? game.platforms.find(
+                (p) => feetRight > p.x && feetLeft < p.x + p.width && feetBefore <= p.top + 2 && feetAfter >= p.top,
+              )
+            : undefined;
+        if (landOn) {
+          player.y = landOn.top - player.height;
+          player.velocityY = 0;
+          player.grounded = true;
+          game.onPlatform = landOn.id;
+          if (landOn.kind === "roof") missionEvent("roof");
+          addParticles(player.x + 65, landOn.top, landOn.kind === "rail" ? "#ffd84e" : "#d9c2a6", 6);
+        } else if (player.y >= GROUND_Y - player.height) {
+          game.onPlatform = null;
           player.y = GROUND_Y - player.height;
           player.velocityY = 0;
           player.grounded = true;
           addParticles(player.x + 65, GROUND_Y, "#d9eef2", 5);
+        }
+      } else if (HALLOWEEN && game.onPlatform !== null) {
+        const standingOn = game.platforms.find((p) => p.id === game.onPlatform);
+        if (!standingOn || feetRight < standingOn.x || feetLeft > standingOn.x + standingOn.width) {
+          // Rolled off the end: fall
+          player.grounded = false;
+          player.velocityY = 0;
+          game.onPlatform = null;
+        } else {
+          player.y = standingOn.top - player.height;
         }
       }
 
@@ -4174,6 +4267,7 @@ function PizzaDashGame() {
         game.broomLift = clamp(game.broomLift + (flying ? dt : -dt) / 0.35, 0, 1);
         if (liftBefore > 0 && game.broomLift === 0) player.y = GROUND_Y - player.height; // touch down exactly
         if (game.broomLift > 0) {
+          game.onPlatform = null;
           const eased = game.broomLift * game.broomLift * (3 - 2 * game.broomLift);
           player.sliding = false;
           player.height = 116;
@@ -4209,6 +4303,31 @@ function PizzaDashGame() {
           if (game.doorResult.timer <= 0) game.doorResult = null;
         }
         if (player.grounded && game.broomLift === 0) game.stompChain = 0;
+        // Grinding a rail: points every second, sparks at the board
+        const onRail = game.onPlatform !== null && game.platforms.some((p) => p.id === game.onPlatform && p.kind === "rail");
+        if (onRail) {
+          const points = GRIND_POINTS_PER_SECOND * dt * mult;
+          game.score += points;
+          game.grindPoints += points;
+          missionEvent("grind", dt);
+          if (Math.random() < 0.6) addParticles(player.x + 40 + Math.random() * 70, player.y + player.height, "#ffd84e", 1);
+        } else if (game.grindPoints > 0) {
+          game.scorePopups.push({ x: player.x + 75, y: player.y - 10, text: `GRIND +${Math.round(game.grindPoints)}`, timer: 1, duration: 1, color: "#ffd84e" });
+          game.grindPoints = 0;
+        }
+        // Missions: complete -> reward, then a new, slightly harder one
+        if (game.missionFlash > 0) {
+          game.missionFlash -= dt;
+          if (game.missionFlash <= 0) game.mission = makeMission(game.mission.level + 1, game.mission.kind);
+        } else if (game.mission.progress >= game.mission.target) {
+          const reward = (MISSION_POINTS_BASE + MISSION_POINTS_PER_LEVEL * game.mission.level) * mult;
+          game.score += reward;
+          game.candyAmmo = Math.min(MAX_AMMO, game.candyAmmo + MISSION_AMMO);
+          game.missionFlash = 1.8;
+          // Below the combo / haunted / boss banners so they never overlap
+          game.scorePopups.push({ x: WORLD_WIDTH / 2, y: 236, text: `MISSION COMPLETE! +${reward} · +${MISSION_AMMO} CANDY`, timer: 1.6, duration: 1.6, color: "#7ee04a" });
+          playSound("keychron");
+        }
         // Smashed obstacles fade out; witch bombs fall until they hit the road
         for (const obstacle of game.obstacles) {
           if (obstacle.smashed !== undefined) obstacle.smashed += dt;
@@ -4348,6 +4467,39 @@ function PizzaDashGame() {
         game.doors.forEach((door) => {
           door.x -= worldMove;
         });
+        // Rails and rooftop routes
+        game.platformTimer -= dt;
+        if (game.platformTimer <= 0 && !game.boss && game.platforms.length === 0) {
+          if (Math.random() < 0.55) {
+            // Long enough for a 1.5-2 s grind at the starting speed
+            game.platforms.push({ id: game.nextId++, kind: "rail", x: WORLD_WIDTH + 60, width: 700 + Math.random() * 300, top: RAIL_TOP });
+          } else {
+            let cursor = WORLD_WIDTH + 60;
+            const roofs = Math.random() < 0.5 ? 2 : 3;
+            for (let k = 0; k < roofs; k += 1) {
+              const width = 420 + Math.random() * 140;
+              game.platforms.push({ id: game.nextId++, kind: "roof", x: cursor, width, top: ROOF_TOP });
+              // Candy up on the high route
+              for (let c = 0; c < 5; c += 1) {
+                game.pizzas.push({
+                  id: game.nextId++,
+                  x: cursor + 40 + (c * (width - 120)) / 4,
+                  y: ROOF_TOP - 80 - Math.sin((c / 4) * Math.PI) * 26,
+                  size: 48,
+                  collected: false,
+                  phase: Math.random() * Math.PI * 2,
+                  color: SWITCH_COLORS[c % SWITCH_COLORS.length],
+                });
+              }
+              cursor += width + 150 + Math.random() * 50; // gap to jump
+            }
+          }
+          game.platformTimer = PLATFORM_GAP_MIN + Math.random() * PLATFORM_GAP_RANDOM;
+        }
+        game.platforms.forEach((platform) => {
+          platform.x -= worldMove;
+        });
+        game.platforms = game.platforms.filter((platform) => platform.x + platform.width > -60);
         game.doors = game.doors.filter((door) => door.x + DOOR_W > -120);
         const nowAtDoor = game.doors.some(
           (d) => !d.knocked && d.x < player.x + 130 && d.x + DOOR_W > player.x + 20,
@@ -4404,6 +4556,7 @@ function PizzaDashGame() {
           obstacle.hit = true;
           obstacle.smashed = 0;
           game.stompChain += 1;
+          missionEvent("smash");
           const points = STOMP_POINTS * game.stompChain * mult;
           game.score += points;
           player.velocityY = STOMP_BOUNCE;
@@ -4500,6 +4653,7 @@ function PizzaDashGame() {
           };
           if (item.collected || !overlaps(playerBox, box)) continue;
           item.collected = true;
+          missionEvent("powerup");
           const info = POWER_UP_INFO[item.kind];
           if (item.kind === "shield") game.pumpkinShield = info.seconds;
           else game.activePower = { kind: item.kind, timer: info.seconds, duration: info.seconds };
@@ -4524,6 +4678,7 @@ function PizzaDashGame() {
           );
           if (door) {
             door.knocked = true;
+            missionEvent("door");
             const treat = Math.random() < 0.6;
             door.treat = treat;
             let text: string;
@@ -4617,6 +4772,7 @@ function PizzaDashGame() {
             obstacle.hit = true;
             obstacle.smashed = 0;
             shot.x = WORLD_WIDTH + 999; // used up
+            missionEvent("zap");
             game.score += ZAP_POINTS * mult;
             game.scorePopups.push({
               x: obstacle.x + obstacle.width / 2,
@@ -4674,8 +4830,13 @@ function PizzaDashGame() {
           game.pizzasCollected += 1;
           game.combo += 1;
           game.comboTimer = 2.4;
-          game.score += (100 + Math.max(0, game.combo - 1) * 20) * mult;
-          if (HALLOWEEN) game.candyAmmo = Math.min(MAX_AMMO, game.candyAmmo + 1);
+          const comboForPoints = HALLOWEEN ? Math.min(game.combo, COMBO_CAP) : game.combo;
+          game.score += (100 + Math.max(0, comboForPoints - 1) * 20) * mult;
+          if (HALLOWEEN) {
+            game.candyAmmo = Math.min(MAX_AMMO, game.candyAmmo + 1);
+            missionEvent("candy");
+            missionEvent("combo", game.combo);
+          }
           addParticles(pizza.x + 24, pizza.y + 24, "#ffd84e", 12);
           playSound("pizza", game.combo);
         }
@@ -4794,6 +4955,10 @@ function PizzaDashGame() {
           const canKnock = !door.knocked && door.x < p.x + 130 && door.x + DOOR_W > p.x + 20;
           drawDoor(ctx, door, game.elapsed, canKnock, IS_TOUCH_DEVICE ? "🚪" : "X");
         });
+        game.platforms.forEach((platform) => {
+          if (platform.kind === "rail") drawRail(ctx, platform, game.elapsed, game.onPlatform === platform.id);
+          else drawRooftop(ctx, platform, game.elapsed);
+        });
         game.pizzas.forEach((pizza) => drawCandy(ctx, pizza, game.elapsed));
         game.keycaps.forEach((keycap) => drawPumpkinKeycap(ctx, keycap, game.elapsed));
         game.powerUps.forEach((item) => drawPowerUpItem(ctx, item, game.elapsed));
@@ -4818,6 +4983,7 @@ function PizzaDashGame() {
       drawHud(ctx, game, highScoreRef.current);
       if (HALLOWEEN) {
         drawPowerUpHud(ctx, game.activePower, game.pumpkinShield);
+        drawMissionHud(ctx, game.mission, game.missionFlash);
         drawAmmoHud(ctx, game.candyAmmo, IS_TOUCH_DEVICE ? "🍬 BUTTON" : "X");
         if (game.boss) drawBossHud(ctx, game.boss, BOSS_HP, BOSS_FIGHT_SECONDS);
         else drawHauntedBanner(ctx, game.haunted, game.elapsed);
@@ -5189,7 +5355,7 @@ function PizzaDashGame() {
           {HALLOWEEN ? (
             <>
               <h2>Survive Halloween night</h2>
-              <p>You skate automatically and speed up the further you go. Jump over pumpkins, gravestones, slime, coffins, skeleton hands and the hearse, or jump right ON pumpkins, coffins and hands to smash them. Slide under signs, cobwebs, ghosts and bats, and stay low under flying witches. Every candy you grab is ammo: throw it to zap ghosts, bats and witches. Every 1,000 m the witch attacks: dodge her pumpkin bombs or hit her 3 times. Knock on doors for a treat (or a trick!), grab power-ups, and enjoy double points in the haunted stretches.</p>
+              <p>You skate automatically and speed up the further you go. Jump over pumpkins, gravestones, slime, coffins, skeleton hands and the hearse, or jump right ON pumpkins, coffins and hands to smash them. Slide under signs, cobwebs, ghosts and bats, and stay low under flying witches. Every candy you grab is ammo: throw it to zap ghosts, bats and witches. Every 1,000 m the witch attacks: dodge her pumpkin bombs or hit her 3 times. Knock on doors for a treat (or a trick!), grab power-ups, and enjoy double points in the haunted stretches. Jump onto graveyard rails to grind for points, take the rooftop route for extra candy (mind the gaps), and complete the missions at the top of the screen.</p>
             </>
           ) : (
             <>
