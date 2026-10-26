@@ -417,14 +417,12 @@ export function drawHalloweenBackground(
     ctx.fillRect(x, GROUND_Y + 96, 100, 8);
   }
 
-  // Low fog drifting along the street
+  // Low fog drifting along the street: a soft band plus soft-edged puffs (no hard ovals)
+  fogBand(ctx, 528, 34, 0.1);
   for (let k = 0; k < 7; k += 1) {
     const fx = ((k * 260 - scroll * (0.9 + (k % 3) * 0.15)) % (WORLD_WIDTH + 400) + WORLD_WIDTH + 400) % (WORLD_WIDTH + 400) - 200;
-    const fy = 520 + (k % 3) * 18 + Math.sin(elapsed * 0.8 + k) * 6;
-    ctx.fillStyle = `rgba(214,200,240,${0.1 + (k % 2) * 0.05})`;
-    ctx.beginPath();
-    ctx.ellipse(fx, fy, 170, 26, 0, 0, Math.PI * 2);
-    ctx.fill();
+    const fy = 522 + (k % 3) * 14 + Math.sin(elapsed * 0.8 + k) * 6;
+    softPuff(ctx, fx, fy, 200, 34, 0.1 + (k % 2) * 0.04);
   }
 
   // Haunted stretch: darker, with ghosts drifting behind the action
@@ -1646,15 +1644,42 @@ export function drawCurseBanner(ctx: CanvasRenderingContext2D, label: string, se
 
 /** Fog trick: drifting fog over the street (thinner near the rider so play stays fair). */
 export function drawFogCurse(ctx: CanvasRenderingContext2D, elapsed: number, strength: number) {
-  for (let k = 0; k < 8; k += 1) {
-    const fx = ((k * 220 - elapsed * 90) % (WORLD_WIDTH + 400) + WORLD_WIDTH + 400) % (WORLD_WIDTH + 400) - 200;
-    const fy = 380 + (k % 4) * 45 + Math.sin(elapsed + k) * 10;
-    const nearRider = fx < 520 ? 0.5 : 1;
-    ctx.fillStyle = `rgba(225,215,245,${0.42 * strength * nearRider})`;
-    ctx.beginPath();
-    ctx.ellipse(fx, fy, 230, 60, 0, 0, Math.PI * 2);
-    ctx.fill();
+  // Layered fog bands that fade out above and below (no hard edges), plus soft
+  // rolling puffs that are thicker ahead of the rider so play stays fair
+  fogBand(ctx, 460, 120, 0.2 * strength);
+  fogBand(ctx, 530, 70, 0.22 * strength);
+  for (let k = 0; k < 9; k += 1) {
+    const fx = ((k * 200 - elapsed * 90) % (WORLD_WIDTH + 500) + WORLD_WIDTH + 500) % (WORLD_WIDTH + 500) - 250;
+    const fy = 400 + (k % 4) * 40 + Math.sin(elapsed + k) * 10;
+    const nearRider = fx < 520 ? 0.55 : 1;
+    softPuff(ctx, fx, fy, 260, 80, 0.38 * strength * nearRider);
   }
+}
+
+/** Soft-edged fog puff: fades smoothly to nothing, so there is no visible outline. */
+function softPuff(ctx: CanvasRenderingContext2D, x: number, y: number, rx: number, ry: number, alpha: number) {
+  if (alpha <= 0) return;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(1, ry / rx);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+  g.addColorStop(0, `rgba(222,212,242,${alpha})`);
+  g.addColorStop(0.5, `rgba(222,212,242,${alpha * 0.55})`);
+  g.addColorStop(1, "rgba(222,212,242,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(-rx, -rx, rx * 2, rx * 2);
+  ctx.restore();
+}
+
+/** Full-width horizontal fog band that fades out above and below. */
+function fogBand(ctx: CanvasRenderingContext2D, centerY: number, halfHeight: number, alpha: number) {
+  if (alpha <= 0) return;
+  const g = ctx.createLinearGradient(0, centerY - halfHeight, 0, centerY + halfHeight);
+  g.addColorStop(0, "rgba(222,212,242,0)");
+  g.addColorStop(0.5, `rgba(222,212,242,${alpha})`);
+  g.addColorStop(1, "rgba(222,212,242,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, centerY - halfHeight, WORLD_WIDTH, halfHeight * 2);
 }
 
 /** Big "TREAT!"/"TRICK!" text after knocking. */
