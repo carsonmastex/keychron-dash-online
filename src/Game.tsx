@@ -28,6 +28,7 @@ import {
   drawDoor,
   drawDoorResult,
   drawFogCurse,
+  drawKnockHint,
   drawProjectile,
   drawWitchBoss,
   type ActivePower,
@@ -3383,6 +3384,9 @@ function PizzaDashGame() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [highScore, setHighScore] = useState(0);
   const [hud, setHud] = useState<Hud>({ score: 0, pizzas: 0, lives: 3, distance: 0 });
+  // Halloween: the touch candy button becomes "Knock" while passing a door
+  const [atDoor, setAtDoor] = useState(false);
+  const atDoorRef = useRef(false);
 
   const changeMode = useCallback((nextMode: GameMode) => {
     modeRef.current = nextMode;
@@ -4345,6 +4349,13 @@ function PizzaDashGame() {
           door.x -= worldMove;
         });
         game.doors = game.doors.filter((door) => door.x + DOOR_W > -120);
+        const nowAtDoor = game.doors.some(
+          (d) => !d.knocked && d.x < player.x + 130 && d.x + DOOR_W > player.x + 20,
+        );
+        if (nowAtDoor !== atDoorRef.current) {
+          atDoorRef.current = nowAtDoor;
+          setAtDoor(nowAtDoor);
+        }
       }
 
       game.obstacles.forEach((obstacle) => {
@@ -4781,7 +4792,7 @@ function PizzaDashGame() {
         const p = game.player;
         game.doors.forEach((door) => {
           const canKnock = !door.knocked && door.x < p.x + 130 && door.x + DOOR_W > p.x + 20;
-          drawDoor(ctx, door, game.elapsed, canKnock, IS_TOUCH_DEVICE ? "TAP 🍬 TO KNOCK" : "PRESS X TO KNOCK");
+          drawDoor(ctx, door, game.elapsed, canKnock, IS_TOUCH_DEVICE ? "🚪" : "X");
         });
         game.pizzas.forEach((pizza) => drawCandy(ctx, pizza, game.elapsed));
         game.keycaps.forEach((keycap) => drawPumpkinKeycap(ctx, keycap, game.elapsed));
@@ -4813,7 +4824,11 @@ function PizzaDashGame() {
         if (game.curse) {
           drawCurseBanner(ctx, game.curse.kind === "mirror" ? "TRICK: LEFT ↔ RIGHT" : "TRICK: FOG", game.curse.timer);
         }
-        if (game.doorResult) drawDoorResult(ctx, game.doorResult.text, game.doorResult.treat, game.doorResult.timer);
+        if (game.doorResult) {
+          drawDoorResult(ctx, game.doorResult.text, game.doorResult.treat, game.doorResult.timer);
+        } else if (game.doors.some((d) => !d.knocked && d.x < game.player.x + 130 && d.x + DOOR_W > game.player.x + 20)) {
+          drawKnockHint(ctx, IS_TOUCH_DEVICE ? "Tap 🚪 Knock: trick or treat?" : "Press X to knock: trick or treat?", game.elapsed);
+        }
       }
       if (game.keychronCelebration > 0) drawKeychronCelebration(ctx, game);
       if (game.bigPizzaMissed > 0) drawBigPizzaMissed(ctx, game);
@@ -5131,7 +5146,7 @@ function PizzaDashGame() {
                   if (modeRef.current === "running") gameRef.current.actionQueued = true;
                 }}
                 onContextMenu={(event) => event.preventDefault()}
-              >🍬<span>Throw</span></button>
+              >{atDoor ? "🚪" : "🍬"}<span>{atDoor ? "Knock" : "Throw"}</span></button>
             )}
             <button
               type="button"

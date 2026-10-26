@@ -1514,7 +1514,7 @@ export type Door = { id: number; x: number; knocked: boolean; result: string | n
 export const DOOR_W = 92;
 
 /** A haunted front door on the footpath (screen x, scrolling with the road). */
-export function drawDoor(ctx: CanvasRenderingContext2D, door: Door, elapsed: number, canKnock: boolean, actionLabel: string) {
+export function drawDoor(ctx: CanvasRenderingContext2D, door: Door, elapsed: number, canKnock: boolean, keyLabel: string) {
   const x = door.x;
   const top = 380;
   const h = 114;
@@ -1560,15 +1560,52 @@ export function drawDoor(ctx: CanvasRenderingContext2D, door: Door, elapsed: num
   ctx.textAlign = "center";
   ctx.fillText("TRICK OR TREAT?", x + DOOR_W / 2, top - 76);
   if (canKnock) {
-    const pulse = 0.75 + Math.sin(elapsed * 10) * 0.25;
-    ctx.fillStyle = `rgba(255,216,78,${pulse})`;
-    roundedRect(ctx, x - 26, top - 132, DOOR_W + 52, 30, 9);
+    // Big key cap + "KNOCK!" bouncing above the door, with an arrow down to it
+    const bounce = Math.abs(Math.sin(elapsed * 6)) * 8;
+    const cx = x + DOOR_W / 2;
+    const by = top - 170 - bounce;
+    ctx.fillStyle = "rgba(21,10,34,.92)";
+    roundedRect(ctx, cx - 78, by, 156, 56, 14);
+    ctx.fill();
+    ctx.strokeStyle = "#ffd84e";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    // key cap
+    ctx.fillStyle = "#d8d2c4";
+    roundedRect(ctx, cx - 66, by + 8, 42, 42, 8);
+    ctx.fill();
+    ctx.fillStyle = "#fffdf8";
+    roundedRect(ctx, cx - 64, by + 8, 38, 34, 7);
     ctx.fill();
     ctx.fillStyle = "#1b1220";
-    ctx.font = "900 15px Arial";
-    ctx.fillText(actionLabel, x + DOOR_W / 2, top - 112);
+    ctx.font = "900 22px Arial";
+    ctx.fillText(keyLabel, cx - 45, by + 33);
+    ctx.fillStyle = "#ffd84e";
+    ctx.font = "900 22px Arial";
+    ctx.fillText("KNOCK!", cx + 24, by + 36);
+    ctx.fillStyle = "#ffd84e";
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, by + 60);
+    ctx.lineTo(cx + 10, by + 60);
+    ctx.lineTo(cx, by + 74);
+    ctx.closePath();
+    ctx.fill();
   }
   ctx.textAlign = "left";
+  ctx.restore();
+}
+
+/** Centre-screen hint while a door can be knocked on. */
+export function drawKnockHint(ctx: CanvasRenderingContext2D, text: string, elapsed: number) {
+  ctx.save();
+  ctx.globalAlpha = 0.8 + Math.sin(elapsed * 8) * 0.2;
+  ctx.textAlign = "center";
+  ctx.font = "900 30px Arial";
+  ctx.lineWidth = 7;
+  ctx.strokeStyle = "rgba(21,10,34,.9)";
+  ctx.strokeText(text, WORLD_WIDTH / 2, 262);
+  ctx.fillStyle = "#ffd84e";
+  ctx.fillText(text, WORLD_WIDTH / 2, 262);
   ctx.restore();
 }
 
