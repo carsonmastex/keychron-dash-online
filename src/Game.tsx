@@ -5373,7 +5373,7 @@ function PizzaDashGame() {
         drawBalanceMeter(ctx, game.player.x + 76, game.player.y - 62, game.grindBalance, game.grindLevel);
       }
       if (HALLOWEEN && game.curse?.kind === "mirror") {
-        drawSwappedSign(ctx, game.player.x + 76, game.player.y - 40, game.elapsed);
+        drawSwappedSign(ctx, game.player.x + 76, game.player.y - 40, game.elapsed, game.curse.timer);
       }
       if (HALLOWEEN) {
         game.projectiles.forEach((shot) => drawProjectile(ctx, shot));

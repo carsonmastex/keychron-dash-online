@@ -1867,20 +1867,22 @@ export function drawCurseBanner(ctx: CanvasRenderingContext2D, label: string, se
   ctx.restore();
 }
 
-/** Mirror curse: a "← →  swapped" sign bobbing over the rider's head. */
-export function drawSwappedSign(ctx: CanvasRenderingContext2D, cx: number, y: number, elapsed: number) {
+/** Mirror curse: an "L/R SWAPPED" sign with the seconds left, bobbing over the rider's head. */
+export function drawSwappedSign(ctx: CanvasRenderingContext2D, cx: number, y: number, elapsed: number, seconds: number) {
   ctx.save();
   ctx.translate(cx, y + Math.sin(elapsed * 6) * 4);
+  ctx.font = "900 16px 'Courier New', monospace";
+  const text = `L/R SWAPPED ${Math.ceil(seconds)}s`;
+  const w = Math.ceil(ctx.measureText(text).width) + 24;
   ctx.fillStyle = "rgba(74,31,42,.95)";
-  roundedRect(ctx, -58, -20, 116, 36, 12);
+  roundedRect(ctx, -w / 2, -18, w, 32, 10);
   ctx.fill();
   ctx.strokeStyle = "#ff6b8a";
   ctx.lineWidth = 3;
   ctx.stroke();
   ctx.fillStyle = "#ffd0da";
   ctx.textAlign = "center";
-  ctx.font = "900 20px Arial";
-  ctx.fillText("→ ⇄ ←", 0, 6);
+  ctx.fillText(text, 0, 4);
   ctx.restore();
 }
 
