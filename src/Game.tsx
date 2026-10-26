@@ -3157,7 +3157,7 @@ function drawHud(
     ctx.scale(breathe, breathe);
     const comboLabel =
       HALLOWEEN && state.combo >= COMBO_CAP
-        ? `${state.combo}× MAX CANDY COMBO!`
+        ? `MAX COMBO ×${COMBO_CAP} · ${state.combo} in a row!`
         : `${state.combo}× ${HALLOWEEN ? "CANDY" : "SWITCH"} COMBO!`;
     ctx.font = "900 28px Arial";
     const comboWidth = Math.ceil(ctx.measureText(comboLabel).width) + 44;
