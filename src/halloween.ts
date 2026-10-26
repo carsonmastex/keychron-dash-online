@@ -1203,28 +1203,33 @@ export function drawCandy(ctx: CanvasRenderingContext2D, candy: CollectibleLike,
     ctx.lineTo(s * 0.06, s * 0.18);
     ctx.stroke();
   } else if (style === 1) {
-    // Candy corn
-    const tri = (y0: number, y1: number, half0: number, half1: number, color: string) => {
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.moveTo(-half0, y0);
-      ctx.lineTo(half0, y0);
-      ctx.lineTo(half1, y1);
-      ctx.lineTo(-half1, y1);
-      ctx.closePath();
-      ctx.fill();
-    };
-    tri(s * 0.32, s * 0.12, s * 0.3, s * 0.21, "#ffd84e");
-    tri(s * 0.12, -s * 0.12, s * 0.21, s * 0.11, SPOOKY.pumpkin);
-    tri(-s * 0.12, -s * 0.36, s * 0.11, s * 0.01, "#fff8ee");
+    // Eyeball gumball (candy corn looked like a traffic cone)
+    const r = s * 0.27;
+    ctx.fillStyle = "#f7f4ee";
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
     ctx.strokeStyle = "rgba(0,0,0,.25)";
     ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(-s * 0.3, s * 0.32);
-    ctx.lineTo(0, -s * 0.36);
-    ctx.lineTo(s * 0.3, s * 0.32);
-    ctx.closePath();
     ctx.stroke();
+    ctx.strokeStyle = "rgba(214,40,60,.75)"; // little red veins
+    ctx.lineWidth = 1.2;
+    for (const a0 of [0.4, 2.2, 3.9, 5.3]) {
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a0) * r * 0.95, Math.sin(a0) * r * 0.95);
+      ctx.quadraticCurveTo(Math.cos(a0 + 0.3) * r * 0.75, Math.sin(a0 + 0.3) * r * 0.75, Math.cos(a0) * r * 0.55, Math.sin(a0) * r * 0.55);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#2fb67c"; // green iris
+    ctx.beginPath();
+    ctx.arc(r * 0.18, -r * 0.05, r * 0.45, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#15121c";
+    ctx.beginPath();
+    ctx.arc(r * 0.22, -r * 0.05, r * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(r * 0.05, -r * 0.3, 3, 3);
   } else {
     // Swirl lollipop
     ctx.strokeStyle = "#f1ead6";

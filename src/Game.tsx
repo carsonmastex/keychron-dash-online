@@ -164,6 +164,10 @@ const MISSION_AMMO = 3;
 // Candy combo bonus stops growing here (keeps scores within the server's limits;
 // rooftop candy makes very long combos easy)
 const COMBO_CAP = 30;
+// Halloween: candy must come quicker to keep a combo going, and the combo
+// banner only shows from 5 in a row so it isn't on screen all the time
+const HALLOWEEN_COMBO_WINDOW = 1.5; // seconds (PAX: 2.4)
+const HALLOWEEN_COMBO_SHOW_FROM = 5;
 
 function makeMission(level: number, previous?: MissionKind): Mission {
   const choices = MISSION_KINDS.filter((kind) => kind !== previous);
@@ -3150,7 +3154,7 @@ function drawHud(
     }
   }
 
-  if (state.combo >= 2 && state.comboTimer > 0) {
+  if (state.combo >= (HALLOWEEN ? HALLOWEEN_COMBO_SHOW_FROM : 2) && state.comboTimer > 0) {
     ctx.save();
     ctx.translate(WORLD_WIDTH / 2, 150);
     const breathe = 1 + Math.sin(state.elapsed * 4) * 0.055;
@@ -4829,7 +4833,7 @@ function PizzaDashGame() {
           pizza.collected = true;
           game.pizzasCollected += 1;
           game.combo += 1;
-          game.comboTimer = 2.4;
+          game.comboTimer = HALLOWEEN ? HALLOWEEN_COMBO_WINDOW : 2.4;
           const comboForPoints = HALLOWEEN ? Math.min(game.combo, COMBO_CAP) : game.combo;
           game.score += (100 + Math.max(0, comboForPoints - 1) * 20) * mult;
           if (HALLOWEEN) {
