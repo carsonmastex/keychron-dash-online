@@ -626,16 +626,19 @@ function scheduleNoise(
   frequency: number,
   filterType: BiquadFilterType = "bandpass",
   q = 0.8,
+  attack = 0.008,
 ) {
   const source = bus.context.createBufferSource();
   const filter = bus.context.createBiquadFilter();
   const envelope = bus.context.createGain();
   source.buffer = bus.noise;
+  // The noise buffer is only 1 s long: loop it so longer sounds don't cut off with a click
+  source.loop = true;
   filter.type = filterType;
   filter.frequency.setValueAtTime(frequency, start);
   filter.Q.value = q;
   envelope.gain.setValueAtTime(0.0001, start);
-  envelope.gain.exponentialRampToValueAtTime(gain, start + 0.008);
+  envelope.gain.exponentialRampToValueAtTime(gain, start + attack);
   envelope.gain.exponentialRampToValueAtTime(0.0001, start + duration);
   source.connect(filter);
   filter.connect(envelope);
@@ -700,37 +703,105 @@ function scheduleYelp(
   scheduleNoise(bus, destination, start, 0.12, 0.035, 2200, "bandpass", 1.1);
 }
 
-// Halloween music: A minor with a harmonic-minor E chord for a spooky lilt
-const SPOOKY_MELODY = [
-  440, 0, 523.25, 0, 659.25, 622.25, 587.33, 0,
-  523.25, 0, 493.88, 523.25, 440, 0, 0, 0,
-  349.23, 0, 440, 0, 523.25, 493.88, 466.16, 0,
-  440, 0, 415.3, 440, 329.63, 0, 0, 0,
+// ---- Halloween soundtrack ----
+// Its own slower tune (108 bpm), not a re-key of the PAX one. Deliberately a
+// different timbre from the candy "plink" bells: a wobbling theremin lead in a
+// lower register, a pizzicato bass walk, a dark organ pad and a heartbeat.
+export const SPOOKY_BPM = 108;
+const N = (name: string) => {
+  const table: Record<string, number> = {
+    A1: 55, D2: 73.42, E2: 82.41, F2: 87.31, A2: 110, C3: 130.81, D3: 146.83, E3: 164.81, F3: 174.61, "G#3": 207.65,
+    A3: 220, B3: 246.94, C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, "G#4": 415.3,
+    A4: 440, B4: 493.88, C5: 523.25,
+  };
+  return table[name];
+};
+// Theremin lead: one entry per bar, [note, start step, length in steps]
+const SPOOKY_LEAD: [string, number, number][][] = [
+  [["E4", 0, 6], ["A4", 6, 4], ["C5", 10, 6]],
+  [["B4", 0, 6], ["A4", 6, 4], ["F4", 10, 6]],
+  [["D4", 0, 6], ["F4", 6, 4], ["A4", 10, 6]],
+  [["G#4", 0, 8], ["B4", 8, 4], ["E4", 12, 4]],
 ];
-const SPOOKY_ROOTS = [110, 87.31, 73.42, 82.41];
-const SPOOKY_CHORDS = [
-  [220, 261.63, 329.63],
-  [174.61, 220, 261.63],
-  [146.83, 174.61, 220],
-  [164.81, 207.65, 246.94],
+const SPOOKY_BARS = [
+  { bass: ["A2", "E3", "A2", "C3"], pad: ["A3", "C4", "E4"] },
+  { bass: ["F2", "C3", "F2", "A2"], pad: ["F3", "A3", "C4"] },
+  { bass: ["D2", "A2", "D2", "F2"], pad: ["F3", "A3", "D4"] },
+  { bass: ["E2", "B3", "E2", "G#3"], pad: ["E3", "G#3", "B3"] },
 ];
 
+function scheduleTheremin(bus: AudioBus, start: number, duration: number, frequency: number, gain: number) {
+  const { context, music } = bus;
+  const oscillator = context.createOscillator();
+  const vibrato = context.createOscillator();
+  const vibratoDepth = context.createGain();
+  const envelope = context.createGain();
+  oscillator.type = "sine";
+  // Slide up into the note, like a theremin player finding the pitch
+  oscillator.frequency.setValueAtTime(frequency * 0.94, start);
+  oscillator.frequency.exponentialRampToValueAtTime(frequency, start + 0.12);
+  vibrato.frequency.value = 5.2;
+  vibratoDepth.gain.setValueAtTime(0, start);
+  vibratoDepth.gain.linearRampToValueAtTime(frequency * 0.018, start + duration * 0.5);
+  vibrato.connect(vibratoDepth);
+  vibratoDepth.connect(oscillator.frequency);
+  envelope.gain.setValueAtTime(0.0001, start);
+  envelope.gain.exponentialRampToValueAtTime(gain, start + 0.09);
+  envelope.gain.setValueAtTime(gain, start + duration * 0.7);
+  envelope.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+  oscillator.connect(envelope);
+  envelope.connect(music);
+  oscillator.start(start);
+  vibrato.start(start);
+  oscillator.stop(start + duration + 0.02);
+  vibrato.stop(start + duration + 0.02);
+}
+
+function scheduleSpookyMusicStep(bus: AudioBus, step: number, start: number, stepLength: number) {
+  const { context, music } = bus;
+  const s = step % (SPOOKY_BARS.length * 16);
+  const barIndex = Math.floor(s / 16);
+  const bar = SPOOKY_BARS[barIndex];
+  const inBar = s % 16;
+  for (const [name, at, length] of SPOOKY_LEAD[barIndex]) {
+    if (at === inBar) scheduleTheremin(bus, start, stepLength * length, N(name), 0.032);
+  }
+  // Pizzicato bass walk on every beat (short, low, no bell partials)
+  if (inBar % 4 === 0) {
+    const f = N(bar.bass[inBar / 4]);
+    scheduleTone(context, music, start, stepLength * 1.8, f, f * 0.99, 0.065, "triangle");
+  }
+  // Dark organ pad: a soft minor chord held through the bar
+  if (inBar === 0) {
+    bar.pad.forEach((name, index) => {
+      const f = N(name);
+      scheduleTone(context, music, start, stepLength * 16, f, f, 0.009, "triangle", (index - 1) * 7);
+    });
+  }
+  // Heartbeat: thump-thump on beat 1 of every bar
+  if (inBar === 0 || inBar === 2) {
+    scheduleTone(context, music, start, stepLength * 1.6, inBar === 0 ? 90 : 75, 45, inBar === 0 ? 0.08 : 0.06, "sine");
+  }
+}
+
 function scheduleMusicStep(bus: AudioBus, step: number, start: number, stepLength: number) {
-  const melody = HALLOWEEN ? SPOOKY_MELODY : [
+  if (HALLOWEEN) {
+    scheduleSpookyMusicStep(bus, step, start, stepLength);
+    return;
+  }
+  const melody = [
     659.25, 0, 783.99, 0, 880, 783.99, 659.25, 0,
     587.33, 0, 659.25, 783.99, 523.25, 0, 659.25, 0,
     698.46, 0, 880, 0, 987.77, 880, 698.46, 0,
     659.25, 0, 587.33, 659.25, 783.99, 0, 523.25, 0,
   ];
-  const roots = HALLOWEEN ? SPOOKY_ROOTS : [130.81, 174.61, 220, 196];
-  const chordTones = HALLOWEEN
-    ? SPOOKY_CHORDS
-    : [
-        [261.63, 329.63, 392],
-        [349.23, 440, 523.25],
-        [440, 523.25, 659.25],
-        [392, 493.88, 587.33],
-      ];
+  const roots = [130.81, 174.61, 220, 196];
+  const chordTones = [
+    [261.63, 329.63, 392],
+    [349.23, 440, 523.25],
+    [440, 523.25, 659.25],
+    [392, 493.88, 587.33],
+  ];
   const normalizedStep = step % melody.length;
   const chordIndex = Math.floor(normalizedStep / 8) % chordTones.length;
   const note = melody[normalizedStep];
@@ -831,7 +902,7 @@ function playHalloweenSound(bus: AudioBus, effect: SoundEffect, combo: number, n
       return true;
     }
     case "jump":
-      scheduleNoise(bus, sfx, now, 0.16, 0.035, 700, "bandpass", 0.6);
+      scheduleNoise(bus, sfx, now, 0.18, 0.03, 700, "bandpass", 0.6, 0.03);
       tone(now, 0.16, 196, 392, 0.05, "triangle");
       return true;
     case "keycap":
@@ -851,7 +922,7 @@ function playHalloweenSound(bus: AudioBus, effect: SoundEffect, combo: number, n
       );
       return true;
     case "graze":
-      scheduleNoise(bus, sfx, now, 0.1, 0.03, 1800, "bandpass", 0.7);
+      scheduleNoise(bus, sfx, now, 0.14, 0.025, 1800, "bandpass", 0.7, 0.03);
       return true;
     case "hit":
       // Pumpkin thud and a ghostly "ooh"
@@ -900,7 +971,7 @@ function playHalloweenSound(bus: AudioBus, effect: SoundEffect, combo: number, n
       bell(now + 0.05, 659.25, 0.025, 0.2);
       return true;
     case "throw":
-      scheduleNoise(bus, sfx, now, 0.1, 0.03, 2000, "bandpass", 0.8);
+      scheduleNoise(bus, sfx, now, 0.14, 0.025, 2000, "bandpass", 0.8, 0.03);
       return true;
     case "zap":
       // Ghost "poof"
@@ -919,7 +990,8 @@ function playHalloweenSound(bus: AudioBus, effect: SoundEffect, combo: number, n
       scheduleNoise(bus, sfx, now, 0.6, 0.04, 260, "lowpass", 0.8);
       return true;
     case "grind":
-      scheduleNoise(bus, sfx, now, 0.14, 0.018, 2600, "bandpass", 0.7);
+      // Long, soft-edged bursts that overlap into one continuous scrape (no clicking)
+      scheduleNoise(bus, sfx, now, 0.42, 0.014, 2400, "bandpass", 0.6, 0.12);
       return true;
     default:
       return false; // toggle, haunted, thunder keep their sounds
@@ -3866,10 +3938,38 @@ function PizzaDashGame() {
       } else if (effect === "grind") {
         scheduleNoise(bus, sfx, now, 0.15, 0.03, 4200, "bandpass", 1.6);
       } else if (effect === "thunder") {
-        // Crack, then a long low rumble
-        scheduleNoise(bus, sfx, now, 0.12, 0.09, 2600, "highpass", 0.6);
-        scheduleNoise(bus, sfx, now + 0.05, 1.6, 0.13, 180, "lowpass", 0.7);
-        scheduleNoise(bus, sfx, now + 0.25, 1.2, 0.08, 90, "lowpass", 0.9);
+        // Real thunder: a sharp crack, then a rolling rumble that swells a few
+        // times while its tone sinks, lasting about 3 seconds
+        scheduleNoise(bus, sfx, now, 0.25, 0.22, 1800, "highpass", 0.5, 0.004);
+        scheduleNoise(bus, sfx, now + 0.06, 0.18, 0.14, 1200, "highpass", 0.5, 0.004);
+        const source = context.createBufferSource();
+        const filter = context.createBiquadFilter();
+        const envelope = context.createGain();
+        source.buffer = bus.noise;
+        source.loop = true;
+        source.playbackRate.value = 0.6;
+        filter.type = "lowpass";
+        filter.Q.value = 0.9;
+        filter.frequency.setValueAtTime(900, now);
+        filter.frequency.exponentialRampToValueAtTime(140, now + 3);
+        envelope.gain.setValueAtTime(0.0001, now);
+        envelope.gain.exponentialRampToValueAtTime(0.5, now + 0.12);
+        let t = now + 0.12;
+        let level = 0.5;
+        while (t < now + 2.6) {
+          const dip = 0.15 + Math.random() * 0.25;
+          const swell = 0.12 + Math.random() * 0.25;
+          level *= 0.72;
+          envelope.gain.exponentialRampToValueAtTime(Math.max(0.02, level * 0.45), t + dip);
+          envelope.gain.exponentialRampToValueAtTime(Math.max(0.03, level), t + dip + swell);
+          t += dip + swell;
+        }
+        envelope.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+        source.connect(filter);
+        filter.connect(envelope);
+        envelope.connect(sfx);
+        source.start(now);
+        source.stop(t + 0.65);
       } else if (effect === "milestone") {
         scheduleTone(context, sfx, now, 0.12, 784, 784, 0.04, "triangle");
         scheduleTone(context, sfx, now + 0.09, 0.16, 1046.5, 1046.5, 0.045, "triangle");
@@ -3885,7 +3985,7 @@ function PizzaDashGame() {
     if (!soundEnabledRef.current || modeRef.current !== "running") return;
     const bus = ensureAudio();
     if (!bus) return;
-    const stepLength = 60 / 136 / 4;
+    const stepLength = 60 / (HALLOWEEN ? SPOOKY_BPM : 136) / 4;
     if (musicNextTimeRef.current < bus.context.currentTime - stepLength) {
       musicNextTimeRef.current = bus.context.currentTime + 0.05;
     }
@@ -4530,7 +4630,7 @@ function PizzaDashGame() {
             game.grindSoundTimer -= dt;
             if (game.grindSoundTimer <= 0) {
               playSound("grind");
-              game.grindSoundTimer = 0.16;
+              game.grindSoundTimer = HALLOWEEN ? 0.3 : 0.16;
             }
           }
         } else if (game.grindPoints > 0) {
