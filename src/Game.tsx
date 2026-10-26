@@ -720,7 +720,7 @@ function scheduleYelp(
 // ---- Halloween soundtrack ----
 // Its own slower tune (108 bpm), not a re-key of the PAX one. Deliberately a
 // different timbre from the candy "plink" bells: a wobbling theremin lead in a
-// lower register, a pizzicato bass walk, a dark organ pad and a heartbeat.
+// lower register, a pizzicato bass walk and a dark organ pad.
 export const SPOOKY_BPM = 108;
 const N = (name: string) => {
   const table: Record<string, number> = {
@@ -792,10 +792,7 @@ function scheduleSpookyMusicStep(bus: AudioBus, step: number, start: number, ste
       scheduleTone(context, music, start, stepLength * 16, f, f, 0.009, "triangle", (index - 1) * 7);
     });
   }
-  // Heartbeat: thump-thump on beat 1 of every bar
-  if (inBar === 0 || inBar === 2) {
-    scheduleTone(context, music, start, stepLength * 1.6, inBar === 0 ? 90 : 75, 45, inBar === 0 ? 0.08 : 0.06, "sine");
-  }
+  // (No heartbeat: its "thump-thump" came out as a sharp "da-da" on laptop speakers)
 }
 
 function scheduleMusicStep(bus: AudioBus, step: number, start: number, stepLength: number) {
@@ -2759,7 +2756,31 @@ function drawPlayer(
   const skin = "#ffd9bd";
   const denim = "#3d5a80";
 
-  if (player.shield > 0) {
+  if (HALLOWEEN && player.shield > 0) {
+    // Halloween: orange and purple magic sparkles circling the rider (no bubble)
+    const cx = x + player.width / 2;
+    const cy = y + player.height / 2;
+    ctx.save();
+    for (let k = 0; k < 6; k += 1) {
+      const a = state.elapsed * 3 + (k * Math.PI * 2) / 6;
+      const sx = cx + Math.cos(a) * player.width * 0.6;
+      const sy = cy + Math.sin(a) * player.height * 0.5;
+      const r = 7 + Math.sin(state.elapsed * 12 + k) * 2;
+      ctx.fillStyle = k % 2 ? "#b98af0" : "#ffb347";
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - r);
+      ctx.lineTo(sx + r * 0.3, sy - r * 0.3);
+      ctx.lineTo(sx + r, sy);
+      ctx.lineTo(sx + r * 0.3, sy + r * 0.3);
+      ctx.lineTo(sx, sy + r);
+      ctx.lineTo(sx - r * 0.3, sy + r * 0.3);
+      ctx.lineTo(sx - r, sy);
+      ctx.lineTo(sx - r * 0.3, sy - r * 0.3);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  } else if (player.shield > 0) {
     const pulse = 0.5 + Math.sin(state.elapsed * 9) * 0.3;
     const cx = x + player.width / 2;
     const cy = y + player.height / 2;
@@ -3515,13 +3536,13 @@ function drawHud(
   if (state.player.shield > 0) {
     ctx.save();
     ctx.translate(WORLD_WIDTH / 2, 220);
-    const shieldLabel = "🔑 SHIELD ACTIVE";
+    const shieldLabel = HALLOWEEN ? "🎃 KEYCHRON MAGIC: INVINCIBLE" : "🔑 SHIELD ACTIVE";
     ctx.font = "900 22px Arial";
     const shieldWidth = Math.ceil(ctx.measureText(shieldLabel).width) + 40;
     ctx.fillStyle = "#171b1f";
     roundedRect(ctx, -shieldWidth / 2, -22, shieldWidth, 44, 12);
     ctx.fill();
-    ctx.fillStyle = "#8eddf1";
+    ctx.fillStyle = HALLOWEEN ? "#ffb347" : "#8eddf1";
     ctx.textAlign = "center";
     ctx.fillText(shieldLabel, 0, 7);
     ctx.textAlign = "left";

@@ -255,12 +255,7 @@ export function drawPlayerAura(
     }
   }
   if (opts.shieldSeconds > 0) {
-    // Blue bubble around the rider, plus a little jack-o'-lantern orbiting it
-    ctx.strokeStyle = `rgba(77,141,255,${0.45 + Math.sin(elapsed * 5) * 0.15})`;
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.ellipse(width / 2, height / 2, width * 0.62, height * 0.62, 0, 0, Math.PI * 2);
-    ctx.stroke();
+    // A little jack-o'-lantern orbiting the rider (no ring: it didn't fit the look)
     const a = elapsed * 2.6;
     const px = width / 2 + Math.cos(a) * 78 - 14;
     const py = height * 0.45 + Math.sin(a) * 30 - 13;
