@@ -278,7 +278,9 @@ type GameState = {
   pumpkinShield: number; // seconds left; blocks one hit
   broomLift: number; // 0 on the road .. 1 flying
   haunted: number; // seconds left in a haunted stretch
-  lightning: number; // 0..1 flash
+  lightningAge: number; // seconds since the last strike (Infinity = none)
+  lightningX: number;
+  lightningSeed: number;
   nextLightning: number;
   candyAmmo: number;
   throwCooldown: number;
@@ -322,7 +324,8 @@ type SoundEffect =
   | "stomp"
   | "boss"
   | "treat"
-  | "trick";
+  | "trick"
+  | "thunder";
 
 type AudioBus = {
   context: AudioContext;
@@ -386,7 +389,9 @@ const freshGame = (): GameState => ({
   pumpkinShield: 0,
   broomLift: 0,
   haunted: 0,
-  lightning: 0,
+  lightningAge: Infinity,
+  lightningX: 0,
+  lightningSeed: 1,
   nextLightning: 0,
   candyAmmo: START_AMMO,
   throwCooldown: 0,
@@ -983,7 +988,14 @@ function drawBackground(
   if (HALLOWEEN) {
     drawHalloweenBackground(
       ctx,
-      { scroll: state.scroll, elapsed: state.elapsed, haunted: state.haunted, lightning: state.lightning },
+      {
+        scroll: state.scroll,
+        elapsed: state.elapsed,
+        haunted: state.haunted,
+        lightningAge: state.lightningAge,
+        lightningX: state.lightningX,
+        lightningSeed: state.lightningSeed,
+      },
       images.keychron,
     );
     return;
@@ -3624,6 +3636,11 @@ function PizzaDashGame() {
       } else if (effect === "trick") {
         scheduleTone(context, sfx, now, 0.5, 300, 140, 0.05, "sawtooth", -20);
         scheduleTone(context, sfx, now + 0.05, 0.45, 315, 150, 0.03, "sawtooth", 20);
+      } else if (effect === "thunder") {
+        // Crack, then a long low rumble
+        scheduleNoise(bus, sfx, now, 0.12, 0.09, 2600, "highpass", 0.6);
+        scheduleNoise(bus, sfx, now + 0.05, 1.6, 0.13, 180, "lowpass", 0.7);
+        scheduleNoise(bus, sfx, now + 0.25, 1.2, 0.08, 90, "lowpass", 0.9);
       } else if (effect === "milestone") {
         scheduleTone(context, sfx, now, 0.12, 784, 784, 0.04, "triangle");
         scheduleTone(context, sfx, now + 0.09, 0.16, 1046.5, 1046.5, 0.045, "triangle");
@@ -4166,11 +4183,15 @@ function PizzaDashGame() {
         }
         game.pumpkinShield = Math.max(0, game.pumpkinShield - dt);
         game.haunted = Math.max(0, game.haunted - dt);
-        game.lightning = Math.max(0, game.lightning - dt / 0.18);
+        game.lightningAge += dt;
         if (game.haunted > 0) {
           game.nextLightning -= dt;
           if (game.nextLightning <= 0) {
-            game.lightning = 1;
+            // Strike somewhere across the sky, with thunder
+            game.lightningAge = 0;
+            game.lightningX = 160 + Math.random() * (WORLD_WIDTH - 320);
+            game.lightningSeed = 1 + Math.floor(Math.random() * 2147483000);
+            playSound("thunder");
             game.nextLightning = 2.2 + Math.random() * 1.2;
           }
         }

@@ -286,7 +286,9 @@ export type SpookyScene = {
   scroll: number;
   elapsed: number;
   haunted: number; // seconds left in a haunted stretch (0 = none)
-  lightning: number; // 0..1 flash strength
+  lightningAge: number; // seconds since the last strike (Infinity = none)
+  lightningX: number; // where the bolt comes down
+  lightningSeed: number; // shape of the bolt
 };
 
 export function drawHalloweenBackground(
@@ -343,6 +345,10 @@ export function drawHalloweenBackground(
     const by = 70 + k * 34 + Math.sin(elapsed * 2 + k) * 18;
     drawBat(ctx, bx, by, 0.7 + (k % 3) * 0.25, elapsed * 14 + k, "#120c1c");
   }
+
+  // Lightning bolt, behind the skyline so buildings hide where it lands
+  const strike = lightningStrength(scene.lightningAge);
+  if (strike > 0) drawLightningBolt(ctx, scene.lightningX, scene.lightningSeed, strike);
 
   // Far skyline: dark purple towers with orange and purple windows
   const skylineOffset = (scroll * 0.22) % 980;
@@ -427,18 +433,97 @@ export function drawHalloweenBackground(
     ctx.fillRect(0, 0, WORLD_WIDTH, GROUND_Y + 40);
     for (let k = 0; k < 4; k += 1) {
       const gx = ((k * 340 - elapsed * 60 - scroll * 0.3) % (WORLD_WIDTH + 200) + WORLD_WIDTH + 200) % (WORLD_WIDTH + 200) - 100;
-      const gy = 200 + k * 55 + Math.sin(elapsed * 1.6 + k) * 22;
+      // Kept faint, small and high in the sky so they don't look like the ghost obstacles
+      const gy = 120 + k * 42 + Math.sin(elapsed * 1.6 + k) * 16;
       ctx.save();
-      ctx.globalAlpha = 0.28 * hauntedMix;
-      drawGhostShape(ctx, gx, gy, 54, elapsed + k);
+      ctx.globalAlpha = 0.18 * hauntedMix;
+      drawGhostShape(ctx, gx, gy, 38, elapsed + k);
       ctx.restore();
     }
   }
-  if (scene.lightning > 0) {
-    // A single soft flash (not a strobe)
-    ctx.fillStyle = `rgba(230,220,255,${0.32 * scene.lightning})`;
+  if (strike > 0) {
+    // Sky lights up with the bolt
+    ctx.fillStyle = `rgba(230,220,255,${0.3 * strike})`;
     ctx.fillRect(0, 0, WORLD_WIDTH, GROUND_Y);
   }
+}
+
+/**
+ * Brightness of a lightning strike over time: a bright flash, a short dark
+ * gap, a second flash, then a fade. Strikes are 2+ seconds apart, so this
+ * stays well under 3 flashes per second (not a strobe).
+ */
+export function lightningStrength(age: number) {
+  if (!(age >= 0) || age > 0.55) return 0;
+  if (age < 0.07) return 1;
+  if (age < 0.13) return 0.15;
+  if (age < 0.2) return 0.85;
+  return 0.85 * (1 - (age - 0.2) / 0.35);
+}
+
+function drawLightningBolt(ctx: CanvasRenderingContext2D, startX: number, seed: number, strength: number) {
+  // Seeded random so the bolt keeps its shape while it flickers
+  let state = Math.floor(seed) % 2147483647 || 1;
+  const rand = () => {
+    state = (state * 48271) % 2147483647;
+    return state / 2147483647;
+  };
+  const bottom = GROUND_Y - 200; // rooftops; the skyline covers the rest
+  const buildPath = (x0: number, y0: number, y1: number, jitter: number) => {
+    const points: [number, number][] = [[x0, y0]];
+    let x = x0;
+    let y = y0;
+    while (y < y1) {
+      y += 22 + rand() * 26;
+      x += (rand() - 0.5) * jitter;
+      points.push([x, Math.min(y, y1)]);
+    }
+    return points;
+  };
+  const main = buildPath(startX, 0, bottom, 70);
+  const branches: [number, number][][] = [];
+  for (let b = 0; b < 3; b += 1) {
+    const from = main[2 + Math.floor(rand() * Math.max(1, main.length - 4))];
+    if (!from) continue;
+    const dir = rand() > 0.5 ? 1 : -1;
+    const pts: [number, number][] = [from];
+    let [x, y] = from;
+    const len = 3 + Math.floor(rand() * 4);
+    for (let k = 0; k < len; k += 1) {
+      x += dir * (14 + rand() * 26);
+      y += 16 + rand() * 22;
+      pts.push([x, y]);
+    }
+    branches.push(pts);
+  }
+  const stroke = (points: [number, number][], width: number, color: string) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    points.forEach(([px, py], index) => (index === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py)));
+    ctx.stroke();
+  };
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  // Purple glow, white-hot core; branches thinner
+  stroke(main, 24, `rgba(185,138,240,${0.32 * strength})`);
+  stroke(main, 10, `rgba(225,205,255,${0.75 * strength})`);
+  stroke(main, 4.5, `rgba(255,255,255,${strength})`);
+  for (const branch of branches) {
+    stroke(branch, 12, `rgba(185,138,240,${0.28 * strength})`);
+    stroke(branch, 3, `rgba(245,235,255,${0.9 * strength})`);
+  }
+  // Glow where it hits the rooftops
+  const [hx, hy] = main[main.length - 1];
+  const hit = ctx.createRadialGradient(hx, hy, 4, hx, hy, 90);
+  hit.addColorStop(0, `rgba(240,230,255,${0.6 * strength})`);
+  hit.addColorStop(1, "rgba(240,230,255,0)");
+  ctx.fillStyle = hit;
+  ctx.beginPath();
+  ctx.arc(hx, hy, 90, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawSpire(ctx: CanvasRenderingContext2D, x: number, groundY: number) {
