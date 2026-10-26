@@ -3681,11 +3681,17 @@ function getPlayerHitbox(player: Player) {
       };
 }
 
+// The live game state is kept outside React on purpose. React stores hook
+// values (useRef/useState) on the page's DOM nodes, where anyone could find
+// them from the browser console and set lives = 999 or change the score. A
+// module-level variable inside the bundle can't be reached that way.
+const liveGame: { current: GameState } = { current: freshGame() };
+
 function PizzaDashGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
-  const gameRef = useRef<GameState>(freshGame());
+  const gameRef = liveGame;
   if (__DEBUG__) (window as unknown as { __game: typeof gameRef }).__game = gameRef;
   const modeRef = useRef<GameMode>("ready");
   const gameOverViewRef = useRef<GameOverView>("entry");

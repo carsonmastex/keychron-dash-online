@@ -61,16 +61,20 @@ function cell(text: string, className = "") {
 const formatMinutes = (seconds: number) => `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, "0")}`;
 
 // Real time the run took vs the game time its distance needs. "Check" means
-// it took far longer (long pauses, or the game was slowed down).
+// it took far longer (long pauses, or the game was slowed down), or the run
+// was very long (over 20 km).
 function timeCell(row: Row) {
   if (row.durationS == null || row.minGameS == null) return cell("—", "muted");
   const td = cell(`${formatMinutes(row.durationS)} / ${formatMinutes(row.minGameS)}`, "num");
   td.title = "Real time taken / minimum game time for this distance";
-  if (row.flag === "slow") {
+  if (row.flag === "slow" || row.flag === "long") {
     const badge = document.createElement("span");
     badge.className = "flag";
     badge.textContent = "Check";
-    badge.title = "Took much longer than the game needs: long pauses, or the game may have been slowed down";
+    badge.title =
+      row.flag === "slow"
+        ? "Took much longer than the game needs: long pauses, or the game may have been slowed down"
+        : "Very long run (over 20 km): check it's real before giving a prize";
     td.append(" ", badge);
   }
   return td;

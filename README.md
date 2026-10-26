@@ -72,15 +72,21 @@ On phones the score entry and leaderboard cover the whole frame.
   for a distance is exact. A score that arrives sooner than that is
   rejected. One that took more than 2 minutes (+5%) longer is saved but
   flagged "Check" in the admin page (long pauses, or a slowed-down game).
-- **Ceilings:** at most 2 switches and 1,500 points per second of game time
-  (real runs peak at about 1.5 and 1,050).
+- **Ceilings:** at most 2.5 switches/candy and 2,500 points per second of
+  game time (a perfect bot peaks at about 1.75 and 1,500; real runs about 1.1
+  and 950).
+- **Long runs:** runs over 20 km are saved but flagged "Check".
+- **No console access to the game:** the live game state is kept outside
+  React, so it can't be found and edited from the browser console
+  (e.g. lives = 999).
 - **Rate limit:** each device can save at most 5 scores per 10 minutes, and
   admin logins are rate limited.
 
 The browser still reports the score, so someone could submit a believable
 fake if they wait out the run time. Check winners by hand (video or a
 supervised run) before awarding prizes. Scores saved before 13 Oct 2026
-have no timing data.
+have no timing data. The PAX records (785) were exported and cleared on
+26 Oct 2026 before the Halloween launch.
 
 ## Local development
 

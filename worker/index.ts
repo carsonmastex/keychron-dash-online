@@ -32,10 +32,17 @@ const METRES_PER_SPEED_SECOND = 1.25;
 // per second of game time. The Halloween theme adds haunted stretches (points
 // x2) and a candy magnet: a bot that never misses a candy peaked at 1.35
 // candy and 1,964 points per game second. Stomps, candy zaps, witch bosses and
-// door treats add roughly 240 more at most (about 2,200 total). These ceilings
-// leave ~50% headroom over that and cover both themes.
+// door treats add roughly 240 more at most. With the candy combo capped at 30
+// (Halloween) the perfect bot peaks at ~1,410 points and 1.75 candy per game
+// second; the Pumpkin King, cobwebs and spiders add about 100 more. The best
+// real run so far was 944 points per game second. These ceilings keep ~60%
+// headroom over the bot, so no honest run gets near them.
 const MAX_SWITCHES_PER_GAME_SECOND = 2.5;
-const MAX_POINTS_PER_GAME_SECOND = 3500;
+const MAX_POINTS_PER_GAME_SECOND = 2500;
+// Runs this long are flagged "long" for a manual check before prizes: in the
+// PAX event most of the 90-110 km runs looked like a rider who couldn't die
+// (lives edited in the browser) left running for 1.5-2 hours.
+const LONG_RUN_METRES = 20000;
 // A run that takes this much longer than its game time is flagged for review
 const SLOW_RUN_GRACE_SECONDS = 120;
 const SUBMIT_LIMIT = { count: 5, minutes: 10 };
@@ -155,7 +162,8 @@ async function handleSubmit(request: Request, env: Env, ctx: ExecutionContext) {
   if (elapsedSec > 3 * 3600 || tooFast || tooRich) {
     return fail(400, "This score could not be verified. Please play again.");
   }
-  const flag = elapsedSec > gameSec * 1.05 + SLOW_RUN_GRACE_SECONDS ? "slow" : null;
+  const flag =
+    elapsedSec > gameSec * 1.05 + SLOW_RUN_GRACE_SECONDS ? "slow" : distance > LONG_RUN_METRES ? "long" : null;
 
   const ip = await ipHash(request, env);
   const recent = await env.DB.prepare("SELECT COUNT(*) AS n FROM scores WHERE ip_hash = ? AND created_at > ?")
