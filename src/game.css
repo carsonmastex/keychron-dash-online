@@ -309,6 +309,9 @@ button {
 .result-keychron-logo.pumpkin-logo {
   height: clamp(40px, 5.4vw, 80px);
   width: clamp(40px, 5.4vw, 80px);
+  /* The circle sits in the lower part of the image (the pumpkin is above it):
+     lift it so the circle's centre lines up with the × and HALLOWEEN */
+  transform: translateY(-11%);
 }
 
 .keychron-logo.pumpkin-logo {
