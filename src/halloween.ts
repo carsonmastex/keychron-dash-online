@@ -219,33 +219,41 @@ export function drawPlayerAura(
   }
 }
 
-/** Broomstick under the board while flying (board-local coordinates, deck centre at 0,0). */
-export function drawBroomUnderBoard(ctx: CanvasRenderingContext2D, elapsed: number, lift: number) {
-  if (lift <= 0) return;
-  const y = 34; // below the wheels so it shows
+/**
+ * The broom the rider stands on instead of the skateboard while the broom
+ * power-up lasts (board-local coordinates: deck centre at 0,0, feet just above).
+ */
+export function drawBroomRide(ctx: CanvasRenderingContext2D, elapsed: number) {
+  const y = 4;
   ctx.save();
-  ctx.globalAlpha = clamp(lift * 1.4, 0, 1);
   ctx.lineCap = "round";
+  // Handle: dark edge, then wood
   ctx.strokeStyle = "#2a160a";
-  ctx.lineWidth = 12;
+  ctx.lineWidth = 13;
   ctx.beginPath();
-  ctx.moveTo(-84, y);
-  ctx.lineTo(78, y);
+  ctx.moveTo(-70, y);
+  ctx.lineTo(96, y - 4);
   ctx.stroke();
   ctx.strokeStyle = "#9a6230";
-  ctx.lineWidth = 8;
+  ctx.lineWidth = 9;
   ctx.beginPath();
-  ctx.moveTo(-84, y);
-  ctx.lineTo(78, y);
+  ctx.moveTo(-70, y);
+  ctx.lineTo(96, y - 4);
   ctx.stroke();
-  // Bristles at the back, fluttering
+  ctx.strokeStyle = "rgba(255,220,170,.5)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-60, y - 3);
+  ctx.lineTo(90, y - 7);
+  ctx.stroke();
+  // Bristles at the back, fluttering in the wind
   ctx.fillStyle = "#f2c056";
   ctx.beginPath();
-  ctx.moveTo(-78, y - 9);
-  ctx.lineTo(-134, y - 22 + Math.sin(elapsed * 18) * 5);
-  ctx.lineTo(-140, y);
-  ctx.lineTo(-134, y + 22 + Math.sin(elapsed * 18 + 1) * 5);
-  ctx.lineTo(-78, y + 9);
+  ctx.moveTo(-64, y - 10);
+  ctx.lineTo(-124, y - 26 + Math.sin(elapsed * 18) * 5);
+  ctx.lineTo(-132, y);
+  ctx.lineTo(-124, y + 26 + Math.sin(elapsed * 18 + 1) * 5);
+  ctx.lineTo(-64, y + 10);
   ctx.closePath();
   ctx.fill();
   ctx.strokeStyle = "#8a5a12";
@@ -253,19 +261,19 @@ export function drawBroomUnderBoard(ctx: CanvasRenderingContext2D, elapsed: numb
   ctx.stroke();
   ctx.strokeStyle = "rgba(138,90,18,.6)";
   ctx.lineWidth = 1.5;
-  for (const dy of [-10, -3, 4, 11]) {
+  for (const dy of [-12, -4, 4, 12]) {
     ctx.beginPath();
-    ctx.moveTo(-84, y + dy * 0.5);
-    ctx.lineTo(-132, y + dy * 1.6);
+    ctx.moveTo(-70, y + dy * 0.5);
+    ctx.lineTo(-124, y + dy * 1.7);
     ctx.stroke();
   }
   ctx.fillStyle = SPOOKY.purple;
-  ctx.fillRect(-86, y - 9, 10, 18);
-  // Sparkle trail
+  ctx.fillRect(-72, y - 10, 11, 20);
+  // Sparkle trail behind the bristles
   for (let k = 0; k < 8; k += 1) {
     const t = (elapsed * 2 + k / 8) % 1;
     ctx.fillStyle = `rgba(255,214,107,${0.85 * (1 - t)})`;
-    ctx.fillRect(-144 - t * 160, y - 4 + Math.sin(k * 2.1 + elapsed * 5) * 16, 6, 6);
+    ctx.fillRect(-138 - t * 160, y - 4 + Math.sin(k * 2.1 + elapsed * 5) * 16, 6, 6);
   }
   ctx.restore();
 }
@@ -743,10 +751,6 @@ export function drawHalloweenObstacle(ctx: CanvasRenderingContext2D, obstacle: O
       // Witch's pumpkin bomb: a lit pumpkin with a sparking fuse
       const cx = x + w / 2;
       if (y + h >= GROUND_Y - 1) shadow(cx, w * 0.6);
-      ctx.fillStyle = "rgba(255,90,40,.22)";
-      ctx.beginPath();
-      ctx.arc(cx, y + h / 2, w * 0.85, 0, Math.PI * 2);
-      ctx.fill();
       drawPumpkin(ctx, x - 4, y + 2, w + 8, h - 2, true, elapsed);
       ctx.strokeStyle = "#2a1a0e";
       ctx.lineWidth = 3;
@@ -768,10 +772,6 @@ export function drawHalloweenObstacle(ctx: CanvasRenderingContext2D, obstacle: O
     case "cone": {
       // Jack-o'-lantern (jump)
       shadow(x + w / 2, w * 0.62);
-      ctx.fillStyle = "rgba(255,170,60,.18)";
-      ctx.beginPath();
-      ctx.arc(x + w / 2, y + h * 0.6, w * 0.85, 0, Math.PI * 2);
-      ctx.fill();
       drawPumpkin(ctx, x - 6, y + 4, w + 12, h - 4, true, elapsed);
       break;
     }
@@ -996,24 +996,17 @@ export function drawHalloweenObstacle(ctx: CanvasRenderingContext2D, obstacle: O
     case "drone": {
       // Floating ghost at head height (slide under)
       const bob = Math.sin(elapsed * 3 + x * 0.01) * 4;
-      ctx.fillStyle = "rgba(244,241,255,.18)";
-      ctx.beginPath();
-      ctx.ellipse(x + w / 2, y + h / 2 + bob, w * 0.75, h * 1.2, 0, 0, Math.PI * 2);
-      ctx.fill();
       drawGhostShape(ctx, x + w / 2, y + h * 0.35 + bob, Math.min(w, h * 1.7), elapsed);
       break;
     }
     case "bats": {
-      // Swarm of bats at head height (slide under), with a glow so it shows at night
-      ctx.fillStyle = "rgba(199,164,245,.28)";
-      ctx.beginPath();
-      ctx.ellipse(x + w / 2, y + h / 2, w * 0.75, h * 1.1, 0, 0, Math.PI * 2);
-      ctx.fill();
+      // Swarm of bats at head height (slide under): light outline and lighter
+      // purple bodies so they read against the night sky without a halo
       for (let k = 0; k < 5; k += 1) {
         const bx = x + 14 + (k % 3) * (w / 3) + Math.sin(elapsed * 4 + k) * 6;
         const by = y + 8 + (k % 2) * (h * 0.55) + Math.cos(elapsed * 5 + k * 2) * 4;
-        drawBat(ctx, bx, by, 1.05, elapsed * 16 + k * 1.3, "#e8dcff");
-        drawBat(ctx, bx, by, 0.9, elapsed * 16 + k * 1.3, "#2d1b42");
+        drawBat(ctx, bx, by, 1.08, elapsed * 16 + k * 1.3, "#f4eeff");
+        drawBat(ctx, bx, by, 0.92, elapsed * 16 + k * 1.3, "#5a3f7d");
         ctx.fillStyle = "#ff3b3b";
         ctx.fillRect(bx - 3, by - 2, 2, 2);
         ctx.fillRect(bx + 1, by - 2, 2, 2);
@@ -1024,10 +1017,7 @@ export function drawHalloweenObstacle(ctx: CanvasRenderingContext2D, obstacle: O
       // Witch on a broomstick flying low (stay on the ground)
       const cx = x + w / 2;
       const cy = y + h / 2;
-      ctx.fillStyle = "rgba(199,164,245,.3)";
-      ctx.beginPath();
-      ctx.ellipse(cx, cy - 8, w * 0.62, h * 0.95, 0, 0, Math.PI * 2);
-      ctx.fill();
+
       ctx.strokeStyle = "#7a4a22";
       ctx.lineWidth = 6;
       ctx.lineCap = "round";
@@ -1055,13 +1045,16 @@ export function drawHalloweenObstacle(ctx: CanvasRenderingContext2D, obstacle: O
       ctx.beginPath();
       ctx.arc(cx - 14, cy - 12, 10, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = "#2a1640"; // hat
+      ctx.fillStyle = "#2a1640"; // hat, with a light edge so it shows on the night sky
       ctx.beginPath();
       ctx.moveTo(cx - 32, cy - 18);
       ctx.lineTo(cx + 4, cy - 18);
       ctx.lineTo(cx - 6, cy - 50);
       ctx.closePath();
       ctx.fill();
+      ctx.strokeStyle = "#e8dcff";
+      ctx.lineWidth = 2;
+      ctx.stroke();
       ctx.fillRect(cx - 34, cy - 20, 40, 5);
       ctx.fillStyle = SPOOKY.purple;
       ctx.fillRect(cx - 22, cy - 24, 20, 4);
@@ -1319,11 +1312,6 @@ export function drawWitchBoss(ctx: CanvasRenderingContext2D, boss: WitchBoss, el
   const cy = y + BOSS_H / 2;
   ctx.save();
   if (boss.hurt > 0 && Math.floor(boss.hurt * 20) % 2 === 0) ctx.globalAlpha = 0.45;
-  // Green magic glow
-  ctx.fillStyle = "rgba(126,224,74,.22)";
-  ctx.beginPath();
-  ctx.ellipse(cx, cy, BOSS_W * 0.62, BOSS_H * 0.62, 0, 0, Math.PI * 2);
-  ctx.fill();
   ctx.lineCap = "round";
   // Broom
   ctx.strokeStyle = "#7a4a22";
@@ -1373,6 +1361,9 @@ export function drawWitchBoss(ctx: CanvasRenderingContext2D, boss: WitchBoss, el
   ctx.lineTo(cx - 14, cy - 86 + Math.sin(elapsed * 3) * 4);
   ctx.closePath();
   ctx.fill();
+  ctx.strokeStyle = "#e8dcff";
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
   ctx.fillRect(cx - 58, cy - 34, 68, 8);
   ctx.fillStyle = SPOOKY.pumpkin;
   ctx.fillRect(cx - 40, cy - 42, 32, 6);

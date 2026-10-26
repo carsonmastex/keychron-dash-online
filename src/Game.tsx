@@ -9,7 +9,7 @@ import keychronLogoUrl from "../assets/keychron-logo.png";
 import {
   HALLOWEEN,
   POWER_UP_INFO,
-  drawBroomUnderBoard,
+  drawBroomRide,
   drawCandy,
   drawHalloweenBackground,
   drawHalloweenObstacle,
@@ -2453,7 +2453,8 @@ function drawPlayer(
   // Ground shadow (stays on the ground while jumping)
   ctx.fillStyle = "rgba(0,0,0,.22)";
   ctx.beginPath();
-  ctx.ellipse(76, H + 7 - bounce, airborne ? 48 : 62, 9, 0, 0, Math.PI * 2);
+  const broomDrop = HALLOWEEN && state.broomLift > 0 ? GROUND_Y - (player.y + H) : 0;
+  ctx.ellipse(76, H + 7 - bounce + broomDrop, airborne || broomDrop > 0 ? 48 : 62, 9, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // Speed lines while rolling
@@ -2517,8 +2518,10 @@ function drawPlayer(
   } else if (trick === "grab") {
     ctx.translate(0, -trickArc * 6);
   }
-  if (HALLOWEEN && state.broomLift > 0) drawBroomUnderBoard(ctx, state.elapsed, state.broomLift);
-  if (PIXEL_RIDER) {
+  // Halloween broom power-up: the broom replaces the skateboard until it's over
+  if (HALLOWEEN && state.broomLift > 0) {
+    drawBroomRide(ctx, state.elapsed);
+  } else if (PIXEL_RIDER) {
     drawPixelBoard(ctx, wheelAngle);
   } else {
   // Deck with kicked-up nose and tail
