@@ -1283,3 +1283,8 @@ html.halloween .result-halloween-tag {
   font-weight: 900;
   letter-spacing: .05em;
 }
+
+html.halloween .candy-key {
+  background: #ffe7c4;
+  border-color: #e0a35c;
+}

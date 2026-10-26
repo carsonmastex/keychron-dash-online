@@ -31,10 +31,11 @@ const METRES_PER_SPEED_SECOND = 1.25;
 // PAX runs (557 real ones, Oct 2026) never beat 1.52 switches or 1,051 points
 // per second of game time. The Halloween theme adds haunted stretches (points
 // x2) and a candy magnet: a bot that never misses a candy peaked at 1.35
-// candy and 1,964 points per game second. These ceilings leave ~50% headroom
-// over that and cover both themes.
+// candy and 1,964 points per game second. Stomps, candy zaps, witch bosses and
+// door treats add roughly 240 more at most (about 2,200 total). These ceilings
+// leave ~50% headroom over that and cover both themes.
 const MAX_SWITCHES_PER_GAME_SECOND = 2.5;
-const MAX_POINTS_PER_GAME_SECOND = 3000;
+const MAX_POINTS_PER_GAME_SECOND = 3500;
 // A run that takes this much longer than its game time is flagged for review
 const SLOW_RUN_GRACE_SECONDS = 120;
 const SUBMIT_LIMIT = { count: 5, minutes: 10 };

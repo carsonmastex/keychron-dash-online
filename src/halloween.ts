@@ -711,7 +711,15 @@ export function drawBat(ctx: CanvasRenderingContext2D, x: number, y: number, sca
 // Obstacles (drawn inside the same boxes as the PAX art)
 // ---------------------------------------------------------------------------
 
-type ObstacleLike = { kind: string; x: number; y: number; width: number; height: number; hit: boolean };
+type ObstacleLike = {
+  kind: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  hit: boolean;
+  smashed?: number; // seconds since it was stomped or zapped (undefined = intact)
+};
 
 export function drawHalloweenObstacle(ctx: CanvasRenderingContext2D, obstacle: ObstacleLike, elapsed: number) {
   const { x, y, width: w, height: h } = obstacle;
@@ -724,7 +732,39 @@ export function drawHalloweenObstacle(ctx: CanvasRenderingContext2D, obstacle: O
     ctx.fill();
   };
 
+  if (obstacle.smashed !== undefined) {
+    drawSmashed(ctx, obstacle, elapsed);
+    ctx.restore();
+    return;
+  }
+
   switch (obstacle.kind) {
+    case "bomb": {
+      // Witch's pumpkin bomb: a lit pumpkin with a sparking fuse
+      const cx = x + w / 2;
+      if (y + h >= GROUND_Y - 1) shadow(cx, w * 0.6);
+      ctx.fillStyle = "rgba(255,90,40,.22)";
+      ctx.beginPath();
+      ctx.arc(cx, y + h / 2, w * 0.85, 0, Math.PI * 2);
+      ctx.fill();
+      drawPumpkin(ctx, x - 4, y + 2, w + 8, h - 2, true, elapsed);
+      ctx.strokeStyle = "#2a1a0e";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(cx, y + 2);
+      ctx.quadraticCurveTo(cx + 8, y - 8, cx + 12, y - 14);
+      ctx.stroke();
+      const spark = 4 + Math.sin(elapsed * 30) * 2;
+      ctx.fillStyle = "#ffe066";
+      ctx.beginPath();
+      ctx.arc(cx + 12, y - 14, spark, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#ff4d1a";
+      ctx.beginPath();
+      ctx.arc(cx + 12, y - 14, spark * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+    }
     case "cone": {
       // Jack-o'-lantern (jump)
       shadow(x + w / 2, w * 0.62);
@@ -1164,6 +1204,358 @@ export function drawPumpkinKeycap(ctx: CanvasRenderingContext2D, keycap: KeycapL
   ctx.fillText(keycap.letter, 0, -s * 0.05);
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Stomp / zap debris
+// ---------------------------------------------------------------------------
+
+function drawSmashed(ctx: CanvasRenderingContext2D, o: ObstacleLike, elapsed: number) {
+  const t = clamp((o.smashed ?? 0) / 0.6, 0, 1);
+  const cx = o.x + o.width / 2;
+  const cy = o.y + o.height / 2;
+  ctx.globalAlpha = 1 - t;
+  const flyer = o.kind === "drone" || o.kind === "bats" || o.kind === "plane";
+  if (flyer) {
+    // Poof of purple smoke and sparkles
+    for (let k = 0; k < 7; k += 1) {
+      const a = (k / 7) * Math.PI * 2;
+      const r = 14 + t * 46;
+      ctx.fillStyle = k % 2 ? "rgba(199,164,245,.8)" : "rgba(244,241,255,.85)";
+      ctx.beginPath();
+      ctx.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 12 * (1 - t) + 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#ffd84e";
+    ctx.font = "900 22px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("ZAP!", cx, cy - 20 - t * 30);
+    ctx.textAlign = "left";
+    return;
+  }
+  // Stomped: chunks flying apart and a splat on the road
+  const colors = o.kind === "boxes" ? ["#4a2c22", "#6b4426"] : o.kind === "hand" ? [SPOOKY.bone, SPOOKY.boneShade] : o.kind === "barrier" || o.kind === "truck" ? [SPOOKY.stone, SPOOKY.stoneDark] : [SPOOKY.pumpkin, SPOOKY.pumpkinDark];
+  ctx.fillStyle = "rgba(255,122,26,.35)";
+  ctx.beginPath();
+  ctx.ellipse(cx, GROUND_Y - 2, o.width * 0.7, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+  for (let k = 0; k < 8; k += 1) {
+    const a = -Math.PI * (0.1 + (k / 7) * 0.8);
+    const r = 10 + t * 70;
+    const px = cx + Math.cos(a) * r;
+    const py = cy + Math.sin(a) * r + t * t * 60;
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(elapsed * 8 + k);
+    ctx.fillStyle = colors[k % 2];
+    ctx.fillRect(-7, -5, 14, 10);
+    ctx.restore();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Thrown candy
+// ---------------------------------------------------------------------------
+
+export type Projectile = {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  spin: number;
+  targetId: number | null; // obstacle id it homes in on; -1 = the witch boss
+};
+
+export function drawProjectile(ctx: CanvasRenderingContext2D, p: Projectile) {
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  // Motion trail
+  ctx.fillStyle = "rgba(255,214,107,.35)";
+  ctx.beginPath();
+  ctx.ellipse(-22, 0, 22, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.rotate(p.spin);
+  ctx.fillStyle = SPOOKY.pumpkin;
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(side * 6, 0);
+    ctx.lineTo(side * 15, -7);
+    ctx.lineTo(side * 15, 7);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.fillStyle = SPOOKY.purple;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 9, 7, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,.8)";
+  ctx.fillRect(-5, -4, 4, 2);
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Witch boss
+// ---------------------------------------------------------------------------
+
+export type WitchBoss = {
+  phase: "enter" | "fight" | "leave";
+  timer: number; // seconds left in the current phase
+  hp: number;
+  x: number;
+  y: number;
+  bombTimer: number;
+  hurt: number; // flash after a hit
+  defeated: boolean;
+};
+
+export const BOSS_W = 170;
+export const BOSS_H = 120;
+
+export function drawWitchBoss(ctx: CanvasRenderingContext2D, boss: WitchBoss, elapsed: number) {
+  const { x, y } = boss;
+  const cx = x + BOSS_W / 2;
+  const cy = y + BOSS_H / 2;
+  ctx.save();
+  if (boss.hurt > 0 && Math.floor(boss.hurt * 20) % 2 === 0) ctx.globalAlpha = 0.45;
+  // Green magic glow
+  ctx.fillStyle = "rgba(126,224,74,.22)";
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, BOSS_W * 0.62, BOSS_H * 0.62, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineCap = "round";
+  // Broom
+  ctx.strokeStyle = "#7a4a22";
+  ctx.lineWidth = 9;
+  ctx.beginPath();
+  ctx.moveTo(x + 4, cy + 30);
+  ctx.lineTo(x + BOSS_W - 34, cy + 30);
+  ctx.stroke();
+  ctx.fillStyle = "#e8b24a";
+  ctx.beginPath();
+  ctx.moveTo(x + BOSS_W - 40, cy + 20);
+  ctx.lineTo(x + BOSS_W + 14, cy + 8 + Math.sin(elapsed * 16) * 4);
+  ctx.lineTo(x + BOSS_W + 16, cy + 54);
+  ctx.lineTo(x + BOSS_W - 40, cy + 40);
+  ctx.closePath();
+  ctx.fill();
+  // Cloak, flapping
+  ctx.fillStyle = SPOOKY.purple;
+  ctx.beginPath();
+  ctx.moveTo(cx - 28, cy + 26);
+  ctx.lineTo(cx + 62, cy + 34 + Math.sin(elapsed * 9) * 7);
+  ctx.lineTo(cx + 14, cy - 18);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#2a1640";
+  ctx.fillRect(cx - 24, cy - 12, 34, 40);
+  // Face (looking left, at the rider)
+  ctx.fillStyle = "#7ac36a";
+  ctx.beginPath();
+  ctx.arc(cx - 24, cy - 20, 17, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath(); // long nose
+  ctx.moveTo(cx - 38, cy - 22);
+  ctx.lineTo(cx - 54, cy - 14);
+  ctx.lineTo(cx - 36, cy - 14);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#ff3b3b";
+  ctx.fillRect(cx - 34, cy - 26, 5, 5);
+  ctx.fillStyle = "#1b1d22";
+  ctx.fillRect(cx - 36, cy - 10, 12, 3); // grin
+  // Hat
+  ctx.fillStyle = "#1a0f2a";
+  ctx.beginPath();
+  ctx.moveTo(cx - 54, cy - 30);
+  ctx.lineTo(cx + 6, cy - 30);
+  ctx.lineTo(cx - 14, cy - 86 + Math.sin(elapsed * 3) * 4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillRect(cx - 58, cy - 34, 68, 8);
+  ctx.fillStyle = SPOOKY.pumpkin;
+  ctx.fillRect(cx - 40, cy - 42, 32, 6);
+  // Wand arm pointing down at the road
+  ctx.strokeStyle = "#2a1640";
+  ctx.lineWidth = 7;
+  ctx.beginPath();
+  ctx.moveTo(cx - 14, cy);
+  ctx.lineTo(cx - 40, cy + 18);
+  ctx.stroke();
+  ctx.strokeStyle = "#e8e2f2";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(cx - 40, cy + 18);
+  ctx.lineTo(cx - 56, cy + 36);
+  ctx.stroke();
+  ctx.fillStyle = "#7ee04a";
+  ctx.beginPath();
+  ctx.arc(cx - 56, cy + 36, 4 + Math.sin(elapsed * 20) * 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** Boss health and timer at the top of the screen. */
+export function drawBossHud(ctx: CanvasRenderingContext2D, boss: WitchBoss, maxHp: number, fightSeconds: number) {
+  const w = 360;
+  const x = WORLD_WIDTH / 2 - w / 2;
+  const y = 120;
+  ctx.save();
+  ctx.fillStyle = "rgba(21,10,34,.92)";
+  roundedRect(ctx, x, y, w, 56, 16);
+  ctx.fill();
+  ctx.strokeStyle = SPOOKY.slime;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = SPOOKY.slime;
+  ctx.font = "900 15px 'Courier New', monospace";
+  ctx.textAlign = "left";
+  const label = boss.defeated ? "WITCH DEFEATED!" : boss.phase === "leave" ? "THE WITCH FLEES" : "WITCH ATTACK! HIT HER WITH CANDY (X)";
+  ctx.fillText(label, x + 16, y + 22);
+  for (let k = 0; k < maxHp; k += 1) {
+    ctx.fillStyle = k < boss.hp ? "#7ee04a" : "rgba(255,255,255,.18)";
+    roundedRect(ctx, x + 16 + k * 40, y + 32, 34, 12, 5);
+    ctx.fill();
+  }
+  if (boss.phase === "fight") {
+    ctx.fillStyle = "rgba(255,255,255,.2)";
+    roundedRect(ctx, x + 150, y + 34, w - 166, 8, 4);
+    ctx.fill();
+    ctx.fillStyle = SPOOKY.pumpkin;
+    roundedRect(ctx, x + 150, y + 34, Math.max(8, (w - 166) * clamp(boss.timer / fightSeconds, 0, 1)), 8, 4);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Trick-or-treat doors
+// ---------------------------------------------------------------------------
+
+export type Door = { id: number; x: number; knocked: boolean; result: string | null; resultTimer: number; treat: boolean };
+
+export const DOOR_W = 92;
+
+/** A haunted front door on the footpath (screen x, scrolling with the road). */
+export function drawDoor(ctx: CanvasRenderingContext2D, door: Door, elapsed: number, canKnock: boolean, actionLabel: string) {
+  const x = door.x;
+  const top = 380;
+  const h = 114;
+  ctx.save();
+  // Wall, frame and steps
+  ctx.fillStyle = "#3a2a4f";
+  ctx.fillRect(x - 18, top - 16, DOOR_W + 36, h + 16);
+  ctx.fillStyle = "#24182f";
+  ctx.beginPath();
+  ctx.moveTo(x - 26, top - 16);
+  ctx.lineTo(x + DOOR_W / 2, top - 52);
+  ctx.lineTo(x + DOOR_W + 26, top - 16);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = door.knocked ? (door.treat ? "#ffe08a" : "#4a1f2a") : "#6b3a1e";
+  roundedRect(ctx, x, top, DOOR_W, h, 10);
+  ctx.fill();
+  if (!door.knocked) {
+    ctx.strokeStyle = "#4a2410";
+    ctx.lineWidth = 3;
+    roundedRect(ctx, x + 12, top + 12, DOOR_W - 24, 38, 6);
+    ctx.stroke();
+    roundedRect(ctx, x + 12, top + 58, DOOR_W - 24, 44, 6);
+    ctx.stroke();
+    ctx.fillStyle = "#d9b44a"; // knocker
+    ctx.beginPath();
+    ctx.arc(x + DOOR_W / 2, top + 54, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#6b3a1e";
+    ctx.beginPath();
+    ctx.arc(x + DOOR_W / 2, top + 54, 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = "#5c5a6b";
+  ctx.fillRect(x - 10, top + h, DOOR_W + 20, 8);
+  drawPumpkin(ctx, x - 30, top + h - 30, 30, 28, true, elapsed);
+  // Sign above the door
+  ctx.fillStyle = "rgba(21,10,34,.9)";
+  roundedRect(ctx, x - 22, top - 96, DOOR_W + 44, 30, 9);
+  ctx.fill();
+  ctx.fillStyle = SPOOKY.pumpkin;
+  ctx.font = "900 14px 'Courier New', monospace";
+  ctx.textAlign = "center";
+  ctx.fillText("TRICK OR TREAT?", x + DOOR_W / 2, top - 76);
+  if (canKnock) {
+    const pulse = 0.75 + Math.sin(elapsed * 10) * 0.25;
+    ctx.fillStyle = `rgba(255,216,78,${pulse})`;
+    roundedRect(ctx, x - 26, top - 132, DOOR_W + 52, 30, 9);
+    ctx.fill();
+    ctx.fillStyle = "#1b1220";
+    ctx.font = "900 15px Arial";
+    ctx.fillText(actionLabel, x + DOOR_W / 2, top - 112);
+  }
+  ctx.textAlign = "left";
+  ctx.restore();
+}
+
+/** Ammo counter for throwing candy (top right, under the lives). */
+export function drawAmmoHud(ctx: CanvasRenderingContext2D, ammo: number, keyLabel: string) {
+  const x = WORLD_WIDTH - 278;
+  const y = 112;
+  ctx.save();
+  ctx.fillStyle = "rgba(21,18,28,.86)";
+  roundedRect(ctx, x, y, 250, 40, 14);
+  ctx.fill();
+  ctx.translate(x + 24, y + 20);
+  drawCandy(ctx, { x: -16, y: -16, size: 32, phase: 0.05, color: "" }, 0);
+  ctx.restore();
+  ctx.fillStyle = ammo > 0 ? "#ffd84e" : "rgba(255,255,255,.45)";
+  ctx.font = "900 15px 'Courier New', monospace";
+  ctx.fillText(`× ${ammo}`, x + 48, y + 26);
+  ctx.fillStyle = "rgba(255,255,255,.7)";
+  ctx.font = "800 12px Arial";
+  ctx.fillText(`THROW: ${keyLabel}`, x + 110, y + 25);
+}
+
+/** Banner for an active trick (mirror controls, fog). */
+export function drawCurseBanner(ctx: CanvasRenderingContext2D, label: string, seconds: number) {
+  ctx.save();
+  ctx.translate(WORLD_WIDTH / 2, 196);
+  ctx.font = "900 18px 'Courier New', monospace";
+  const text = `${label} · ${Math.ceil(seconds)}`;
+  const w = Math.ceil(ctx.measureText(text).width) + 40;
+  ctx.fillStyle = "rgba(74,31,42,.92)";
+  roundedRect(ctx, -w / 2, -18, w, 36, 12);
+  ctx.fill();
+  ctx.fillStyle = "#ffb3c1";
+  ctx.textAlign = "center";
+  ctx.fillText(text, 0, 6);
+  ctx.restore();
+}
+
+/** Fog trick: drifting fog over the street (thinner near the rider so play stays fair). */
+export function drawFogCurse(ctx: CanvasRenderingContext2D, elapsed: number, strength: number) {
+  for (let k = 0; k < 8; k += 1) {
+    const fx = ((k * 220 - elapsed * 90) % (WORLD_WIDTH + 400) + WORLD_WIDTH + 400) % (WORLD_WIDTH + 400) - 200;
+    const fy = 380 + (k % 4) * 45 + Math.sin(elapsed + k) * 10;
+    const nearRider = fx < 520 ? 0.5 : 1;
+    ctx.fillStyle = `rgba(225,215,245,${0.42 * strength * nearRider})`;
+    ctx.beginPath();
+    ctx.ellipse(fx, fy, 230, 60, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/** Big "TREAT!"/"TRICK!" text after knocking. */
+export function drawDoorResult(ctx: CanvasRenderingContext2D, text: string, treat: boolean, timer: number) {
+  ctx.save();
+  ctx.globalAlpha = clamp(timer / 0.4, 0, 1);
+  ctx.textAlign = "center";
+  ctx.font = "900 46px Arial";
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = "rgba(21,10,34,.9)";
+  const y = 280 - (1.6 - timer) * 20;
+  ctx.strokeText(text, WORLD_WIDTH / 2, y);
+  ctx.fillStyle = treat ? "#ffd84e" : "#ff6b8a";
+  ctx.fillText(text, WORLD_WIDTH / 2, y);
   ctx.restore();
 }
 

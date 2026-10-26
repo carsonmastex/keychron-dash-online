@@ -19,9 +19,23 @@ import {
   drawPowerUpItem,
   drawPowerUpIcon,
   drawPumpkinKeycap,
+  BOSS_H,
+  BOSS_W,
+  DOOR_W,
+  drawAmmoHud,
+  drawBossHud,
+  drawCurseBanner,
+  drawDoor,
+  drawDoorResult,
+  drawFogCurse,
+  drawProjectile,
+  drawWitchBoss,
   type ActivePower,
+  type Door,
   type PowerUpItem,
   type PowerUpKind,
+  type Projectile,
+  type WitchBoss,
 } from "./halloween";
 import paxLogoUrl from "../assets/pax-aus-logo.png";
 import paxFlagsLogoUrl from "../assets/pax26-flags-logo-sm.png";
@@ -69,7 +83,8 @@ type ObstacleKind =
   | "drone" // slide: camera drone at head height
   | "truck" // jump: a little Keychron delivery truck
   | "hand" // Halloween, jump: skeleton hand out of the road
-  | "bats"; // Halloween, slide: swarm of bats at head height
+  | "bats" // Halloween, slide: swarm of bats at head height
+  | "bomb"; // Halloween boss: pumpkin bomb dropped by the witch (jump it or stomp it)
 
 // Spawn weights; `from` is the distance (m) where the obstacle starts appearing.
 const OBSTACLE_TABLE: { kind: ObstacleKind; weight: number; from: number }[] = [
@@ -102,6 +117,29 @@ const HAUNTED_POINTS_MULTIPLIER = 2;
 const BROOM_HEIGHT = 150; // px above the road while flying
 const MAGNET_RADIUS = 300;
 const GHOST_PASS_POINTS = 25;
+// Stomp: land on these from above to smash them and bounce
+const STOMPABLE = new Set<ObstacleKind>(["cone", "boxes", "hand", "truck", "bomb"]);
+const STOMP_POINTS = 150; // x chain: 150, 300, 450 ... until you touch the road
+const STOMP_BOUNCE = -820;
+// Throwing candy at ghosts, bats and witches
+const ZAPPABLE = new Set<ObstacleKind>(["drone", "bats", "plane"]);
+const ZAP_POINTS = 200;
+const START_AMMO = 3;
+const MAX_AMMO = 30;
+const THROW_COOLDOWN = 0.25;
+// Witch boss every 1,000 m (haunted stretches move to 500, 1,500, 2,500 ...)
+const BOSS_EVERY_METRES = 1000;
+const BOSS_FIGHT_SECONDS = 15;
+const BOSS_HP = 3;
+const BOSS_DEFEAT_POINTS = 3000;
+const BOSS_SURVIVE_POINTS = 500;
+const BOMB_SIZE = 44;
+// Trick-or-treat doors
+const DOOR_FIRST_SECONDS = 20;
+const DOOR_GAP_MIN = 22;
+const DOOR_GAP_RANDOM = 10;
+const TREAT_POINTS = 500;
+const CURSE_SECONDS = 5;
 
 type Player = {
   x: number;
@@ -124,6 +162,8 @@ type Obstacle = {
   height: number;
   hit: boolean;
   grazed: boolean;
+  smashed?: number; // Halloween: seconds since stomped or zapped
+  vy?: number; // Halloween: falling speed of a witch's bomb
 };
 
 // Regular collectibles are mechanical switches; the big bonus is a keyboard.
@@ -240,6 +280,16 @@ type GameState = {
   haunted: number; // seconds left in a haunted stretch
   lightning: number; // 0..1 flash
   nextLightning: number;
+  candyAmmo: number;
+  throwCooldown: number;
+  projectiles: Projectile[];
+  stompChain: number;
+  boss: WitchBoss | null;
+  doors: Door[];
+  doorTimer: number;
+  curse: { kind: "mirror" | "fog"; timer: number } | null;
+  doorResult: { text: string; treat: boolean; timer: number } | null;
+  actionQueued: boolean; // X / candy button pressed: knock if at a door, else throw
 };
 
 type Hud = {
@@ -266,7 +316,13 @@ type SoundEffect =
   | "milestone"
   | "powerup"
   | "haunted"
-  | "shieldbreak";
+  | "shieldbreak"
+  | "throw"
+  | "zap"
+  | "stomp"
+  | "boss"
+  | "treat"
+  | "trick";
 
 type AudioBus = {
   context: AudioContext;
@@ -332,6 +388,16 @@ const freshGame = (): GameState => ({
   haunted: 0,
   lightning: 0,
   nextLightning: 0,
+  candyAmmo: START_AMMO,
+  throwCooldown: 0,
+  projectiles: [],
+  stompChain: 0,
+  boss: null,
+  doors: [],
+  doorTimer: DOOR_FIRST_SECONDS,
+  curse: null,
+  doorResult: null,
+  actionQueued: false,
 });
 
 const clamp = (value: number, min: number, max: number) =>
@@ -3206,7 +3272,7 @@ function drawOverlay(
       ctx.textAlign = "center";
       ctx.fillStyle = "#b98af0";
       ctx.font = "700 15px Arial";
-      ctx.fillText("Every 500 m a HAUNTED STRETCH doubles your points for 10 seconds", WORLD_WIDTH / 2, 372);
+      ctx.fillText("HAUNTED STRETCHES at 500 m, 1,500 m, 2,500 m… double your points · The WITCH attacks every 1,000 m", WORLD_WIDTH / 2, 372);
     } else {
       ctx.fillText("KEYCHRON DASH", WORLD_WIDTH / 2, 240);
       ctx.fillStyle = "#ffd84e";
@@ -3225,12 +3291,21 @@ function drawOverlay(
     ctx.fillStyle = "rgba(255,255,255,.74)";
     ctx.font = "700 17px Arial";
     ctx.fillText(
-      IS_TOUCH_DEVICE
-        ? "Use the buttons below:  ← → move    ↓ slide    ↑ jump"
-        : "SPACE / ↑ jump    ↓ slide    ← → move",
+      HALLOWEEN
+        ? IS_TOUCH_DEVICE
+          ? "Buttons below:  ← → move   ↓ slide   ↑ jump   🍬 throw candy / knock"
+          : "SPACE / ↑ jump    ↓ slide    ← → move    X throw candy / knock on doors"
+        : IS_TOUCH_DEVICE
+          ? "Use the buttons below:  ← → move    ↓ slide    ↑ jump"
+          : "SPACE / ↑ jump    ↓ slide    ← → move",
       WORLD_WIDTH / 2,
       520,
     );
+    if (HALLOWEEN) {
+      ctx.fillStyle = "rgba(255,255,255,.62)";
+      ctx.font = "700 15px Arial";
+      ctx.fillText("Jump ON pumpkins, coffins and hands to smash them · Knock on doors for a treat (or a trick!)", WORLD_WIDTH / 2, 548);
+    }
   }
 
   if (mode === "paused") {
@@ -3523,6 +3598,29 @@ function PizzaDashGame() {
       } else if (effect === "shieldbreak") {
         scheduleNoise(bus, sfx, now, 0.22, 0.09, 900, "bandpass", 0.9);
         scheduleTone(context, sfx, now, 0.25, 420, 160, 0.06, "square");
+      } else if (effect === "throw") {
+        scheduleNoise(bus, sfx, now, 0.12, 0.05, 2400, "bandpass", 0.8);
+        scheduleTone(context, sfx, now, 0.1, 500, 900, 0.03, "triangle");
+      } else if (effect === "zap") {
+        scheduleTone(context, sfx, now, 0.18, 1200, 300, 0.05, "square", 6);
+        scheduleNoise(bus, sfx, now, 0.2, 0.05, 3200, "highpass", 0.6);
+      } else if (effect === "stomp") {
+        scheduleTone(context, sfx, now, 0.14, 220, 90, 0.09, "square");
+        scheduleNoise(bus, sfx, now, 0.16, 0.08, 700, "lowpass", 0.8);
+        scheduleTone(context, sfx, now + 0.06, 0.12, 660, 990, 0.035, "triangle");
+      } else if (effect === "boss") {
+        // Witch cackle: quick wobbling high notes
+        for (let k = 0; k < 6; k += 1) {
+          scheduleTone(context, sfx, now + k * 0.09, 0.08, 880 - k * 40, 700 - k * 40, 0.04, "sawtooth", k * 9);
+        }
+        scheduleNoise(bus, sfx, now, 0.7, 0.06, 260, "lowpass", 0.8);
+      } else if (effect === "treat") {
+        [659.25, 783.99, 1046.5].forEach((frequency, index) => {
+          scheduleTone(context, sfx, now + index * 0.07, 0.18, frequency, frequency, 0.05, "triangle");
+        });
+      } else if (effect === "trick") {
+        scheduleTone(context, sfx, now, 0.5, 300, 140, 0.05, "sawtooth", -20);
+        scheduleTone(context, sfx, now + 0.05, 0.45, 315, 150, 0.03, "sawtooth", 20);
       } else if (effect === "milestone") {
         scheduleTone(context, sfx, now, 0.12, 784, 784, 0.04, "triangle");
         scheduleTone(context, sfx, now + 0.09, 0.16, 1046.5, 1046.5, 0.045, "triangle");
@@ -3774,6 +3872,9 @@ function PizzaDashGame() {
       if (isRightKey(event)) keysRef.current.right = true;
       if (isDownKey(event)) keysRef.current.down = true;
       if (event.code === "KeyP" && !event.repeat) togglePause();
+      if (HALLOWEEN && event.code === "KeyX" && !event.repeat && modeRef.current === "running") {
+        gameRef.current.actionQueued = true;
+      }
       // Restart needs R pressed twice quickly: players type K-E-Y-C-H-R-O-N on
       // the keyboard while playing, and a single R used to wipe their run.
       if (
@@ -3911,6 +4012,7 @@ function PizzaDashGame() {
         // Halloween: same hitboxes as the cone (jump) and the drone (slide)
         hand: { w: 58, h: 66, y: GROUND_Y - 64 },
         bats: { w: 92, h: 36, y: GROUND_Y - 128 },
+        bomb: { w: BOMB_SIZE, h: BOMB_SIZE, y: GROUND_Y - BOMB_SIZE }, // only dropped by the boss
       };
       const spec = specs[kind];
       const spawnX = WORLD_WIDTH + 50;
@@ -4013,7 +4115,9 @@ function PizzaDashGame() {
       const mult = HALLOWEEN && game.haunted > 0 ? HAUNTED_POINTS_MULTIPLIER : 1;
       game.score += game.speed * dt * 4 * mult;
 
-      const horizontal = (Number(keysRef.current.right) - Number(keysRef.current.left)) * 330 * dt;
+      const steer = Number(keysRef.current.right) - Number(keysRef.current.left);
+      const mirrored = HALLOWEEN && game.curse?.kind === "mirror";
+      const horizontal = (mirrored ? -steer : steer) * 330 * dt;
       player.x = clamp(player.x + horizontal, 92, 420);
 
       const wantsSlide = keysRef.current.down && player.grounded;
@@ -4067,6 +4171,67 @@ function PizzaDashGame() {
             game.nextLightning = 2.2 + Math.random() * 1.2;
           }
         }
+        game.throwCooldown = Math.max(0, game.throwCooldown - dt);
+        if (game.curse) {
+          game.curse.timer -= dt;
+          if (game.curse.timer <= 0) game.curse = null;
+        }
+        if (game.doorResult) {
+          game.doorResult.timer -= dt;
+          if (game.doorResult.timer <= 0) game.doorResult = null;
+        }
+        if (player.grounded && game.broomLift === 0) game.stompChain = 0;
+        // Smashed obstacles fade out; witch bombs fall until they hit the road
+        for (const obstacle of game.obstacles) {
+          if (obstacle.smashed !== undefined) obstacle.smashed += dt;
+          if (obstacle.vy !== undefined && obstacle.y + obstacle.height < GROUND_Y) {
+            obstacle.vy += 1300 * dt;
+            obstacle.y = Math.min(GROUND_Y - obstacle.height, obstacle.y + obstacle.vy * dt);
+          }
+        }
+        // Witch boss
+        const boss = game.boss;
+        if (boss) {
+          boss.hurt = Math.max(0, boss.hurt - dt);
+          boss.timer -= dt;
+          if (boss.phase === "enter") {
+            // Stays below the score and lives panels
+            boss.x += (880 - boss.x) * Math.min(1, dt * 3);
+            boss.y = 200 + Math.sin(game.elapsed * 2) * 14;
+            if (boss.timer <= 0) {
+              boss.phase = "fight";
+              boss.timer = BOSS_FIGHT_SECONDS;
+            }
+          } else if (boss.phase === "fight") {
+            boss.x = 870 + Math.sin(game.elapsed * 0.9) * 60;
+            boss.y = 200 + Math.sin(game.elapsed * 2.1) * 22;
+            boss.bombTimer -= dt;
+            if (boss.bombTimer <= 0) {
+              game.obstacles.push({
+                id: game.nextId++,
+                kind: "bomb",
+                x: boss.x + 20,
+                y: boss.y + BOSS_H - 20,
+                width: BOMB_SIZE,
+                height: BOMB_SIZE,
+                hit: false,
+                grazed: false,
+                vy: 60,
+              });
+              boss.bombTimer = 1.4 + Math.random() * 0.7;
+            }
+            if (boss.timer <= 0) {
+              boss.phase = "leave";
+              boss.timer = 1.6;
+              game.score += BOSS_SURVIVE_POINTS * mult;
+              game.scorePopups.push({ x: WORLD_WIDTH / 2, y: 250, text: `SURVIVED! +${BOSS_SURVIVE_POINTS * mult}`, timer: 1.4, duration: 1.4, color: "#7ee04a" });
+            }
+          } else {
+            boss.x += 560 * dt;
+            boss.y -= 170 * dt;
+            if (boss.timer <= 0) game.boss = null;
+          }
+        }
       }
 
       player.invincible = Math.max(0, player.invincible - dt);
@@ -4105,7 +4270,11 @@ function PizzaDashGame() {
         game.milestoneFlash = 1.6;
         game.milestoneLabel = `${currentMilestone}M!`;
         addParticles(player.x + player.width / 2, player.y - 20, "#ffd84e", 14);
-        if (HALLOWEEN && currentMilestone % HAUNTED_EVERY_METRES === 0) {
+        if (HALLOWEEN && currentMilestone % BOSS_EVERY_METRES === 0) {
+          game.boss = { phase: "enter", timer: 1.5, hp: BOSS_HP, x: WORLD_WIDTH + 80, y: 200, bombTimer: 1.4, hurt: 0, defeated: false };
+          game.milestoneLabel = `${currentMilestone}M · WITCH ATTACK!`;
+          playSound("boss");
+        } else if (HALLOWEEN && currentMilestone % HAUNTED_EVERY_METRES === 0) {
           game.haunted = HAUNTED_SECONDS;
           game.nextLightning = 0.6;
           game.milestoneLabel = `${currentMilestone}M · HAUNTED!`;
@@ -4116,7 +4285,7 @@ function PizzaDashGame() {
       }
 
       game.obstacleTimer -= dt;
-      if (game.obstacleTimer <= 0) {
+      if (game.obstacleTimer <= 0 && !(HALLOWEEN && game.boss)) {
         if (spawnObstacle(game)) {
           const difficulty = clamp(game.distance / OBSTACLE_RAMP_METRES, 0, OBSTACLE_GAP_MIN_CUT);
           game.obstacleTimer = OBSTACLE_GAP_BASE - difficulty + Math.random() * OBSTACLE_GAP_RANDOM;
@@ -4143,6 +4312,15 @@ function PizzaDashGame() {
         game.powerUps.forEach((item) => {
           item.x -= worldMove;
         });
+        game.doorTimer -= dt;
+        if (game.doorTimer <= 0 && !game.boss) {
+          game.doors.push({ id: game.nextId++, x: WORLD_WIDTH + 40, knocked: false, result: null, resultTimer: 0, treat: false });
+          game.doorTimer = DOOR_GAP_MIN + Math.random() * DOOR_GAP_RANDOM;
+        }
+        game.doors.forEach((door) => {
+          door.x -= worldMove;
+        });
+        game.doors = game.doors.filter((door) => door.x + DOOR_W > -120);
       }
 
       game.obstacles.forEach((obstacle) => {
@@ -4175,6 +4353,35 @@ function PizzaDashGame() {
               color: "#b8f0ff",
             });
           }
+          continue;
+        }
+        if (
+          HALLOWEEN &&
+          STOMPABLE.has(obstacle.kind) &&
+          obstacle.smashed === undefined &&
+          !obstacle.hit &&
+          !player.grounded &&
+          player.velocityY > 0 &&
+          overlaps(playerBox, obstacle) &&
+          playerBox.y + playerBox.height - obstacle.y < 34
+        ) {
+          // Landed on top: smash it and bounce. Chains until you touch the road.
+          obstacle.hit = true;
+          obstacle.smashed = 0;
+          game.stompChain += 1;
+          const points = STOMP_POINTS * game.stompChain * mult;
+          game.score += points;
+          player.velocityY = STOMP_BOUNCE;
+          addParticles(obstacle.x + obstacle.width / 2, obstacle.y, "#ff7a1a", 14);
+          game.scorePopups.push({
+            x: obstacle.x + obstacle.width / 2,
+            y: obstacle.y - 10,
+            text: game.stompChain > 1 ? `STOMP x${game.stompChain}! +${points}` : `STOMP! +${points}`,
+            timer: 0.9,
+            duration: 0.9,
+            color: "#ff7a1a",
+          });
+          playSound("stomp");
           continue;
         }
         if (!obstacle.hit && player.invincible <= 0 && player.shield <= 0 && overlaps(playerBox, obstacle)) {
@@ -4273,6 +4480,151 @@ function PizzaDashGame() {
           playSound("powerup");
         }
         game.powerUps = game.powerUps.filter((item) => !item.collected && item.x + item.size > -80);
+
+        // X / candy button: knock on a door you're passing, otherwise throw a candy
+        if (game.actionQueued) {
+          game.actionQueued = false;
+          const door = game.doors.find(
+            (d) => !d.knocked && d.x < player.x + 130 && d.x + DOOR_W > player.x + 20,
+          );
+          if (door) {
+            door.knocked = true;
+            const treat = Math.random() < 0.6;
+            door.treat = treat;
+            let text: string;
+            if (treat) {
+              const roll = Math.floor(Math.random() * 4);
+              if (roll === 0 || (roll === 3 && game.lives >= 3)) {
+                game.score += TREAT_POINTS * mult;
+                text = `TREAT! +${TREAT_POINTS * mult}`;
+              } else if (roll === 1) {
+                game.candyAmmo = Math.min(MAX_AMMO, game.candyAmmo + 5);
+                text = "TREAT! +5 CANDY";
+              } else if (roll === 2) {
+                const kinds: Exclude<PowerUpKind, "shield">[] = ["broom", "magnet", "ghost"];
+                const kind = kinds[Math.floor(Math.random() * kinds.length)];
+                const info = POWER_UP_INFO[kind];
+                game.activePower = { kind, timer: info.seconds, duration: info.seconds };
+                text = `TREAT! ${info.name}`;
+              } else {
+                game.lives += 1;
+                text = "TREAT! +1 LIFE";
+              }
+              addParticles(door.x + DOOR_W / 2, 400, "#ffd84e", 20);
+              playSound("treat");
+            } else {
+              const roll = Math.floor(Math.random() * 3);
+              if (roll === 0) {
+                game.curse = { kind: "mirror", timer: CURSE_SECONDS };
+                text = "TRICK! LEFT ↔ RIGHT";
+              } else if (roll === 1) {
+                game.curse = { kind: "fog", timer: CURSE_SECONDS };
+                text = "TRICK! FOG";
+              } else {
+                game.candyAmmo = Math.max(0, game.candyAmmo - 3);
+                text = "TRICK! CANDY STOLEN";
+              }
+              addParticles(door.x + DOOR_W / 2, 400, "#b98af0", 20);
+              playSound("trick");
+            }
+            game.doorResult = { text, treat, timer: 1.6 };
+          } else if (game.candyAmmo > 0 && game.throwCooldown <= 0) {
+            game.candyAmmo -= 1;
+            game.throwCooldown = THROW_COOLDOWN;
+            // Auto-aim at the nearest ghost, bat or witch ahead (or the boss)
+            const fromX = player.x + 112;
+            const fromY = player.y + (player.sliding ? 30 : 44);
+            let targetId: number | null = null;
+            let best = Infinity;
+            for (const obstacle of game.obstacles) {
+              if (!ZAPPABLE.has(obstacle.kind) || obstacle.smashed !== undefined || obstacle.hit) continue;
+              const ahead = obstacle.x + obstacle.width / 2 - fromX;
+              if (ahead > 0 && ahead < WORLD_WIDTH && ahead < best) {
+                best = ahead;
+                targetId = obstacle.id;
+              }
+            }
+            if (game.boss && !game.boss.defeated && game.boss.phase !== "leave" && game.boss.x + BOSS_W / 2 - fromX < best) {
+              targetId = -1;
+            }
+            game.projectiles.push({ id: game.nextId++, x: fromX, y: fromY, vx: 1050, vy: -40, spin: 0, targetId });
+            playSound("throw");
+          }
+        }
+
+        // Thrown candy: zap ghosts, bats and witches; hit the boss
+        for (const shot of game.projectiles) {
+          // Home in on the target if it is still there; otherwise fly on with a little drop
+          let aim: { x: number; y: number } | null = null;
+          if (shot.targetId === -1 && game.boss && !game.boss.defeated && game.boss.phase !== "leave") {
+            aim = { x: game.boss.x + BOSS_W / 2, y: game.boss.y + BOSS_H / 2 };
+          } else if (shot.targetId !== null && shot.targetId >= 0) {
+            const target = game.obstacles.find((o) => o.id === shot.targetId && o.smashed === undefined && !o.hit);
+            if (target) aim = { x: target.x + target.width / 2, y: target.y + target.height / 2 };
+          }
+          if (aim) {
+            const dx = aim.x - shot.x;
+            const dy = aim.y - shot.y;
+            const dist = Math.hypot(dx, dy) || 1;
+            const turn = Math.min(1, dt * 12);
+            shot.vx += ((dx / dist) * 1050 - shot.vx) * turn;
+            shot.vy += ((dy / dist) * 1050 - shot.vy) * turn;
+          } else {
+            shot.vy += 160 * dt;
+          }
+          shot.x += shot.vx * dt;
+          shot.y += shot.vy * dt;
+          shot.spin += 14 * dt;
+          const shotBox = { x: shot.x - 12, y: shot.y - 9, width: 24, height: 18 };
+          for (const obstacle of game.obstacles) {
+            if (!ZAPPABLE.has(obstacle.kind) || obstacle.smashed !== undefined || obstacle.hit) continue;
+            if (!overlaps(shotBox, obstacle)) continue;
+            obstacle.hit = true;
+            obstacle.smashed = 0;
+            shot.x = WORLD_WIDTH + 999; // used up
+            game.score += ZAP_POINTS * mult;
+            game.scorePopups.push({
+              x: obstacle.x + obstacle.width / 2,
+              y: obstacle.y,
+              text: `+${ZAP_POINTS * mult}`,
+              timer: 0.8,
+              duration: 0.8,
+              color: "#ffd84e",
+            });
+            playSound("zap");
+            break;
+          }
+          const boss = game.boss;
+          if (boss && !boss.defeated && boss.phase !== "leave" && shot.x < WORLD_WIDTH + 500) {
+            const bossBox = { x: boss.x + 20, y: boss.y - 20, width: BOSS_W - 30, height: BOSS_H + 10 };
+            if (overlaps(shotBox, bossBox)) {
+              shot.x = WORLD_WIDTH + 999;
+              boss.hp -= 1;
+              boss.hurt = 0.5;
+              addParticles(boss.x + BOSS_W / 2, boss.y + BOSS_H / 2, "#7ee04a", 14);
+              playSound("zap");
+              if (boss.hp <= 0) {
+                boss.defeated = true;
+                boss.phase = "leave";
+                boss.timer = 1.6;
+                game.score += BOSS_DEFEAT_POINTS * mult;
+                game.shake = Math.max(game.shake, 0.4);
+                game.scorePopups.push({
+                  x: WORLD_WIDTH / 2,
+                  y: 250,
+                  text: `WITCH DEFEATED! +${BOSS_DEFEAT_POINTS * mult}`,
+                  timer: 1.6,
+                  duration: 1.6,
+                  color: "#7ee04a",
+                });
+                playSound("bigpizza");
+              }
+            }
+          }
+        }
+        game.projectiles = game.projectiles.filter(
+          (shot) => shot.x < WORLD_WIDTH + 60 && shot.x > -60 && shot.y < GROUND_Y + 20 && shot.y > -60,
+        );
       }
 
       for (const pizza of game.pizzas) {
@@ -4288,6 +4640,7 @@ function PizzaDashGame() {
           game.combo += 1;
           game.comboTimer = 2.4;
           game.score += (100 + Math.max(0, game.combo - 1) * 20) * mult;
+          if (HALLOWEEN) game.candyAmmo = Math.min(MAX_AMMO, game.candyAmmo + 1);
           addParticles(pizza.x + 24, pizza.y + 24, "#ffd84e", 12);
           playSound("pizza", game.combo);
         }
@@ -4401,6 +4754,11 @@ function PizzaDashGame() {
       }
       drawBackground(ctx, game, images);
       if (HALLOWEEN) {
+        const p = game.player;
+        game.doors.forEach((door) => {
+          const canKnock = !door.knocked && door.x < p.x + 130 && door.x + DOOR_W > p.x + 20;
+          drawDoor(ctx, door, game.elapsed, canKnock, IS_TOUCH_DEVICE ? "TAP 🍬 TO KNOCK" : "PRESS X TO KNOCK");
+        });
         game.pizzas.forEach((pizza) => drawCandy(ctx, pizza, game.elapsed));
         game.keycaps.forEach((keycap) => drawPumpkinKeycap(ctx, keycap, game.elapsed));
         game.powerUps.forEach((item) => drawPowerUpItem(ctx, item, game.elapsed));
@@ -4409,15 +4767,29 @@ function PizzaDashGame() {
         game.keycaps.forEach((keycap) => drawKeycap(ctx, keycap, game.elapsed));
       }
       if (game.bigPizza) drawBigPizza(ctx, game.bigPizza, game.elapsed);
-      if (HALLOWEEN) game.obstacles.forEach((obstacle) => drawHalloweenObstacle(ctx, obstacle, game.elapsed));
-      else game.obstacles.forEach((obstacle) => drawObstacle(ctx, obstacle));
+      if (HALLOWEEN) {
+        game.obstacles.forEach((obstacle) => drawHalloweenObstacle(ctx, obstacle, game.elapsed));
+        if (game.boss) drawWitchBoss(ctx, game.boss, game.elapsed);
+      } else {
+        game.obstacles.forEach((obstacle) => drawObstacle(ctx, obstacle));
+      }
       drawPlayer(ctx, game, images.keychron);
+      if (HALLOWEEN) {
+        game.projectiles.forEach((shot) => drawProjectile(ctx, shot));
+        if (game.curse?.kind === "fog") drawFogCurse(ctx, game.elapsed, Math.min(1, game.curse.timer));
+      }
       drawParticles(ctx, game.particles);
       drawScorePopups(ctx, game.scorePopups);
       drawHud(ctx, game, highScoreRef.current);
       if (HALLOWEEN) {
         drawPowerUpHud(ctx, game.activePower, game.pumpkinShield);
-        drawHauntedBanner(ctx, game.haunted, game.elapsed);
+        drawAmmoHud(ctx, game.candyAmmo, IS_TOUCH_DEVICE ? "🍬 BUTTON" : "X");
+        if (game.boss) drawBossHud(ctx, game.boss, BOSS_HP, BOSS_FIGHT_SECONDS);
+        else drawHauntedBanner(ctx, game.haunted, game.elapsed);
+        if (game.curse) {
+          drawCurseBanner(ctx, game.curse.kind === "mirror" ? "TRICK: LEFT ↔ RIGHT" : "TRICK: FOG", game.curse.timer);
+        }
+        if (game.doorResult) drawDoorResult(ctx, game.doorResult.text, game.doorResult.treat, game.doorResult.timer);
       }
       if (game.keychronCelebration > 0) drawKeychronCelebration(ctx, game);
       if (game.bigPizzaMissed > 0) drawBigPizzaMissed(ctx, game);
@@ -4725,6 +5097,18 @@ function PizzaDashGame() {
             >→<span>Right</span></button>
           </div>
           <div className="touch-group">
+            {HALLOWEEN && (
+              <button
+                type="button"
+                className="touch-key candy-key"
+                aria-label="Throw candy or knock on a door"
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  if (modeRef.current === "running") gameRef.current.actionQueued = true;
+                }}
+                onContextMenu={(event) => event.preventDefault()}
+              >🍬<span>Throw</span></button>
+            )}
             <button
               type="button"
               className="touch-key"
@@ -4748,7 +5132,7 @@ function PizzaDashGame() {
           <div className="live-stats" aria-live="off">
             <span><small>SCORE</small>{String(hud.score).padStart(5, "0")}</span>
             <span><small>{HALLOWEEN ? "CANDY" : "SWITCHES"}</small>× {hud.pizzas}</span>
-            <span><small>LIVES</small>{"●".repeat(hud.lives)}{"○".repeat(3 - hud.lives)}</span>
+            <span><small>LIVES</small>{"●".repeat(clamp(hud.lives, 0, 3))}{"○".repeat(3 - clamp(hud.lives, 0, 3))}</span>
             <span><small>DISTANCE</small>{hud.distance}m</span>
           </div>
           <div className="toolbar-buttons">
@@ -4766,7 +5150,7 @@ function PizzaDashGame() {
           {HALLOWEEN ? (
             <>
               <h2>Survive Halloween night</h2>
-              <p>You skate automatically and speed up the further you go. Jump over pumpkins, gravestones, slime, coffins, skeleton hands and the hearse. Stay low under flying witches, and slide under signs, cobwebs, ghosts and bats. Grab power-ups: a broom to fly, a pumpkin shield, a candy magnet and ghost mode. Every 500 m a haunted stretch doubles your points for 10 seconds.</p>
+              <p>You skate automatically and speed up the further you go. Jump over pumpkins, gravestones, slime, coffins, skeleton hands and the hearse, or jump right ON pumpkins, coffins and hands to smash them. Slide under signs, cobwebs, ghosts and bats, and stay low under flying witches. Every candy you grab is ammo: throw it to zap ghosts, bats and witches. Every 1,000 m the witch attacks: dodge her pumpkin bombs or hit her 3 times. Knock on doors for a treat (or a trick!), grab power-ups, and enjoy double points in the haunted stretches.</p>
             </>
           ) : (
             <>
@@ -4784,6 +5168,12 @@ function PizzaDashGame() {
             <div className="key-cluster"><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd></div>
             <div><b>Slide &amp; dodge</b><span>{HALLOWEEN ? "Hold ↓ to slide under signs, cobwebs, ghosts and bats" : "Hold ↓ to slide under signs, banners and drones"}</span></div>
           </div>
+          {HALLOWEEN && (
+            <div className="guide-item">
+              <kbd>X</kbd>
+              <div><b>Throw candy / knock</b><span>Zap ghosts, bats and the witch. At a door, X knocks instead</span></div>
+            </div>
+          )}
           <div className="guide-item compact-guide">
             <kbd>ENTER</kbd><div><b>Start / save score</b><span>After the run, type your name and press Enter</span></div>
           </div>
