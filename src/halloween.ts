@@ -74,10 +74,11 @@ export type PowerUpItem = {
 export type ActivePower = { kind: Exclude<PowerUpKind, "shield">; timer: number; duration: number };
 
 export const POWER_UP_INFO: Record<PowerUpKind, { name: string; seconds: number; color: string; blurb: string }> = {
-  broom: { name: "BROOM", seconds: 6, color: "#ffb347", blurb: "Fly over everything" },
-  shield: { name: "PUMPKIN SHIELD", seconds: 20, color: SPOOKY.pumpkin, blurb: "Blocks one hit" },
+  // One clear hue each, none of them used by obstacles (orange pumpkins, white ghosts, purple bats)
+  broom: { name: "BROOM", seconds: 6, color: "#ffd84e", blurb: "Fly over everything" },
+  shield: { name: "SHIELD", seconds: 20, color: "#4d8dff", blurb: "Blocks one hit" },
   magnet: { name: "CANDY MAGNET", seconds: 8, color: "#ff5fa2", blurb: "Pulls candy to you" },
-  ghost: { name: "GHOST MODE", seconds: 5, color: "#b8f0ff", blurb: "Pass through obstacles" },
+  ghost: { name: "GHOST MODE", seconds: 5, color: "#3ee6c1", blurb: "Pass through obstacles" },
 };
 
 /** Small icon for a power-up, centred on (0,0), about `s` px wide. */
@@ -107,7 +108,21 @@ export function drawPowerUpIcon(ctx: CanvasRenderingContext2D, kind: PowerUpKind
     ctx.fillStyle = SPOOKY.purple;
     ctx.fillRect(s * 0.12, -s * 0.08, s * 0.07, s * 0.16);
   } else if (kind === "shield") {
-    drawPumpkin(ctx, -s * 0.38, -s * 0.34, s * 0.76, s * 0.68, true, 0);
+    ctx.fillStyle = "#4d8dff";
+    ctx.beginPath();
+    ctx.moveTo(-s * 0.32, -s * 0.36);
+    ctx.lineTo(s * 0.32, -s * 0.36);
+    ctx.lineTo(s * 0.32, -s * 0.02);
+    ctx.quadraticCurveTo(s * 0.3, s * 0.28, 0, s * 0.42);
+    ctx.quadraticCurveTo(-s * 0.3, s * 0.28, -s * 0.32, -s * 0.02);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#1d3f8f";
+    ctx.lineWidth = Math.max(1.5, s * 0.06);
+    ctx.stroke();
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(-s * 0.05, -s * 0.26, s * 0.1, s * 0.5);
+    ctx.fillRect(-s * 0.2, -s * 0.08, s * 0.4, s * 0.1);
   } else if (kind === "magnet") {
     ctx.strokeStyle = "#e23b5a";
     ctx.lineWidth = s * 0.17;
@@ -125,7 +140,7 @@ export function drawPowerUpIcon(ctx: CanvasRenderingContext2D, kind: PowerUpKind
     ctx.lineTo(s * 0.24, s * 0.3);
     ctx.stroke();
   } else {
-    drawGhostShape(ctx, 0, 0, s * 0.62, 0);
+    drawGhostShape(ctx, 0, 0, s * 0.62, 0, "#3ee6c1", "#1fb594");
   }
   ctx.restore();
 }
@@ -135,30 +150,59 @@ export function drawPowerUpItem(ctx: CanvasRenderingContext2D, item: PowerUpItem
   const cx = item.x + item.size / 2;
   const cy = item.y + item.size / 2 + bob;
   const info = POWER_UP_INFO[item.kind];
-  const pulse = 0.5 + Math.sin(elapsed * 6 + item.phase) * 0.25;
+  const pulse = 0.5 + Math.sin(elapsed * 6 + item.phase) * 0.5;
+  const r = item.size * 0.5;
   ctx.save();
-  // Soft glow ring
-  ctx.fillStyle = hexAlpha(info.color, 0.18 + pulse * 0.15);
+  // Spinning light rays behind: nothing else in the game has them
+  ctx.translate(cx, cy);
+  ctx.rotate(elapsed * 1.6 + item.phase);
+  ctx.fillStyle = hexAlpha(info.color, 0.32 + pulse * 0.2);
+  for (let k = 0; k < 8; k += 1) {
+    ctx.rotate(Math.PI / 4);
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.22, 0);
+    ctx.lineTo(0, -r * 1.65);
+    ctx.lineTo(r * 0.22, 0);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+  ctx.save();
+  // Bright bubble with a thick white rim (obstacles are dark; this is light)
+  const fill = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.35, r * 0.1, cx, cy, r);
+  fill.addColorStop(0, "#ffffff");
+  fill.addColorStop(1, hexAlpha(info.color, 0.85));
+  ctx.fillStyle = fill;
   ctx.beginPath();
-  ctx.arc(cx, cy, item.size * 0.72, 0, Math.PI * 2);
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.fill();
-  // Bubble
-  ctx.fillStyle = "rgba(21,18,28,.82)";
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = "#ffffff";
+  ctx.stroke();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "#15121c";
   ctx.beginPath();
-  ctx.arc(cx, cy, item.size * 0.5, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = info.color;
-  ctx.lineWidth = 3;
+  ctx.arc(cx, cy, r + 3, 0, Math.PI * 2);
   ctx.stroke();
   ctx.translate(cx, cy);
-  drawPowerUpIcon(ctx, item.kind, item.size * 0.7);
+  drawPowerUpIcon(ctx, item.kind, item.size * 0.72);
   ctx.restore();
-  // Sparkles
-  for (let k = 0; k < 3; k += 1) {
-    const a = elapsed * 2.4 + item.phase + (k * Math.PI * 2) / 3;
-    ctx.fillStyle = hexAlpha("#ffffff", 0.75);
-    ctx.fillRect(cx + Math.cos(a) * item.size * 0.62 - 2, cy + Math.sin(a) * item.size * 0.62 - 2, 4, 4);
-  }
+  // Name tag above, so players know it's a power-up to grab
+  ctx.save();
+  ctx.font = "900 13px 'Courier New', monospace";
+  const label = `★ ${info.name}`;
+  const tw = ctx.measureText(label).width + 16;
+  const ty = cy - r - 30;
+  ctx.fillStyle = "rgba(21,18,28,.9)";
+  roundedRect(ctx, cx - tw / 2, ty, tw, 21, 8);
+  ctx.fill();
+  ctx.strokeStyle = info.color;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = info.color;
+  ctx.textAlign = "center";
+  ctx.fillText(label, cx, ty + 15);
+  ctx.restore();
 }
 
 /** Power-up status pills under the score panel. */
@@ -211,7 +255,12 @@ export function drawPlayerAura(
     }
   }
   if (opts.shieldSeconds > 0) {
-    // A little jack-o'-lantern orbiting the rider
+    // Blue bubble around the rider, plus a little jack-o'-lantern orbiting it
+    ctx.strokeStyle = `rgba(77,141,255,${0.45 + Math.sin(elapsed * 5) * 0.15})`;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.ellipse(width / 2, height / 2, width * 0.62, height * 0.62, 0, 0, Math.PI * 2);
+    ctx.stroke();
     const a = elapsed * 2.6;
     const px = width / 2 + Math.cos(a) * 78 - 14;
     const py = height * 0.45 + Math.sin(a) * 30 - 13;
@@ -736,10 +785,18 @@ export function drawPumpkin(
   }
 }
 
-export function drawGhostShape(ctx: CanvasRenderingContext2D, cx: number, cy: number, size: number, t: number) {
+export function drawGhostShape(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  size: number,
+  t: number,
+  color: string = SPOOKY.ghost,
+  shade: string = SPOOKY.ghostShade,
+) {
   const w = size;
   const h = size * 1.15;
-  ctx.fillStyle = SPOOKY.ghost;
+  ctx.fillStyle = color;
   ctx.beginPath();
   ctx.moveTo(cx - w / 2, cy + h * 0.35);
   ctx.lineTo(cx - w / 2, cy - h * 0.1);
@@ -754,7 +811,7 @@ export function drawGhostShape(ctx: CanvasRenderingContext2D, cx: number, cy: nu
   }
   ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = SPOOKY.ghostShade;
+  ctx.fillStyle = shade;
   ctx.fillRect(cx + w * 0.18, cy - h * 0.3, w * 0.12, h * 0.55);
   // Face
   ctx.fillStyle = "#1b1d22";
@@ -812,6 +869,64 @@ type ObstacleLike = {
   smashed?: number; // seconds since it was stomped or zapped (undefined = intact)
 };
 
+function drawCobweb(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+  ctx.strokeStyle = "rgba(240,236,255,.85)";
+  ctx.lineWidth = 2;
+  const cx = x + w / 2;
+  const spokes = 7;
+  for (let k = 0; k < spokes; k += 1) {
+    const a = Math.PI * (k / (spokes - 1));
+    ctx.beginPath();
+    ctx.moveTo(cx, y);
+    ctx.lineTo(cx + Math.cos(a) * w * 0.55, y + Math.sin(a) * (h + 6));
+    ctx.stroke();
+  }
+  for (let ring = 1; ring <= 6; ring += 1) {
+    const f = ring / 6;
+    ctx.beginPath();
+    for (let k = 0; k < spokes; k += 1) {
+      const a = Math.PI * (k / (spokes - 1));
+      const px = cx + Math.cos(a) * w * 0.55 * f;
+      const py = y + Math.sin(a) * (h + 6) * f;
+      if (k === 0) ctx.moveTo(px, py);
+      else ctx.quadraticCurveTo((cx + px) / 2 + (px - cx) * 0.4, (y + py) / 2 + (py - y) * 0.6, px, py);
+    }
+    ctx.stroke();
+  }
+}
+
+/** Spider centred on (cx, cy). `walking` makes the legs scuttle (on the road). */
+function drawSpider(ctx: CanvasRenderingContext2D, cx: number, cy: number, scale: number, elapsed: number, walking: boolean) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(scale, scale);
+  ctx.strokeStyle = "#120c18";
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  for (const side of [-1, 1]) {
+    for (let k = 0; k < 4; k += 1) {
+      const step = walking ? Math.sin(elapsed * 22 + k * 1.7 + (side > 0 ? 1 : 0)) * 4 : 0;
+      ctx.beginPath();
+      ctx.moveTo(side * 8, -6 + k * 5);
+      if (walking) ctx.quadraticCurveTo(side * 20, -16 + k * 4, side * (24 + k * 1.5) + step, 12);
+      else ctx.quadraticCurveTo(side * 22, -14 + k * 6, side * 26, k * 6);
+      ctx.stroke();
+    }
+  }
+  ctx.fillStyle = "#120c18";
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 13, 15, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#3b1d63";
+  ctx.beginPath();
+  ctx.ellipse(0, 3, 5, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#ff3b3b";
+  ctx.fillRect(-5, -4, 3, 3);
+  ctx.fillRect(2, -4, 3, 3);
+  ctx.restore();
+}
+
 export function drawHalloweenObstacle(ctx: CanvasRenderingContext2D, obstacle: ObstacleLike, elapsed: number) {
   const { x, y, width: w, height: h } = obstacle;
   ctx.save();
@@ -823,6 +938,14 @@ export function drawHalloweenObstacle(ctx: CanvasRenderingContext2D, obstacle: O
     ctx.fill();
   };
 
+  if (obstacle.smashed !== undefined && obstacle.kind === "banner") {
+    const t = clamp(obstacle.smashed / 0.6, 0, 1);
+    ctx.globalAlpha = 1 - t;
+    ctx.translate(0, t * t * 160);
+    drawCobweb(ctx, x, y, w, h);
+    ctx.restore();
+    return;
+  }
   if (obstacle.smashed !== undefined) {
     drawSmashed(ctx, obstacle, elapsed);
     ctx.restore();
@@ -1026,54 +1149,23 @@ export function drawHalloweenObstacle(ctx: CanvasRenderingContext2D, obstacle: O
       break;
     }
     case "banner": {
-      // Giant cobweb from the top with a spider (slide under)
+      // Giant cobweb from the top with a spider (slide under, or throw candy to tear it down)
+      drawCobweb(ctx, x, y, w, h);
+      const cx = x + w / 2;
+      const sy = y + h - 10 + Math.sin(elapsed * 2.2) * 4;
       ctx.strokeStyle = "rgba(240,236,255,.85)";
       ctx.lineWidth = 2;
-      const cx = x + w / 2;
-      const bottom = y + h;
-      const spokes = 7;
-      for (let k = 0; k < spokes; k += 1) {
-        const a = Math.PI * (k / (spokes - 1));
-        ctx.beginPath();
-        ctx.moveTo(cx, y);
-        ctx.lineTo(cx + Math.cos(a) * w * 0.55, y + Math.sin(a) * (h + 6));
-        ctx.stroke();
-      }
-      for (let ring = 1; ring <= 6; ring += 1) {
-        const f = ring / 6;
-        ctx.beginPath();
-        for (let k = 0; k < spokes; k += 1) {
-          const a = Math.PI * (k / (spokes - 1));
-          const px = cx + Math.cos(a) * w * 0.55 * f;
-          const py = y + Math.sin(a) * (h + 6) * f;
-          if (k === 0) ctx.moveTo(px, py);
-          else ctx.quadraticCurveTo((cx + px) / 2 + (px - cx) * 0.4, (y + py) / 2 + (py - y) * 0.6, px, py);
-        }
-        ctx.stroke();
-      }
-      // Spider hanging at the bottom edge
-      const sy = bottom - 10 + Math.sin(elapsed * 2.2) * 4;
       ctx.beginPath();
       ctx.moveTo(cx, y + h * 0.6);
       ctx.lineTo(cx, sy);
       ctx.stroke();
-      ctx.fillStyle = "#120c18";
-      ctx.beginPath();
-      ctx.ellipse(cx, sy + 8, 13, 15, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "#120c18";
-      ctx.lineWidth = 3;
-      for (const side of [-1, 1]) {
-        for (let k = 0; k < 4; k += 1) {
-          ctx.beginPath();
-          ctx.moveTo(cx + side * 8, sy + 2 + k * 5);
-          ctx.quadraticCurveTo(cx + side * 22, sy - 6 + k * 6, cx + side * 26, sy + 8 + k * 6);
-          ctx.stroke();
-        }
-      }
-      ctx.fillStyle = "#ff3b3b";
-      ctx.fillRect(cx - 5, sy + 4, 3, 3);
-      ctx.fillRect(cx + 2, sy + 4, 3, 3);
+      drawSpider(ctx, cx, sy + 8, 1, elapsed, false);
+      break;
+    }
+    case "spider": {
+      // The spider from a torn-down cobweb, scuttling on the road (jump it or stomp it)
+      shadow(x + w / 2, w * 0.5);
+      drawSpider(ctx, x + w / 2, y + h * 0.55, 1.35, elapsed, true);
       break;
     }
     case "drone": {
@@ -1381,6 +1473,9 @@ export function drawProjectile(ctx: CanvasRenderingContext2D, p: Projectile) {
 // ---------------------------------------------------------------------------
 
 export type WitchBoss = {
+  kind: "witch" | "pumpkin"; // witch every 1,000 m; pumpkin ghost mini-boss after each haunted stretch
+  maxHp: number;
+  fightSeconds: number;
   phase: "enter" | "fight" | "leave";
   timer: number; // seconds left in the current phase
   hp: number;
@@ -1395,6 +1490,10 @@ export const BOSS_W = 170;
 export const BOSS_H = 120;
 
 export function drawWitchBoss(ctx: CanvasRenderingContext2D, boss: WitchBoss, elapsed: number) {
+  if (boss.kind === "pumpkin") {
+    drawPumpkinGhostBoss(ctx, boss, elapsed);
+    return;
+  }
   const { x, y } = boss;
   const cx = x + BOSS_W / 2;
   const cy = y + BOSS_H / 2;
@@ -1475,8 +1574,35 @@ export function drawWitchBoss(ctx: CanvasRenderingContext2D, boss: WitchBoss, el
   ctx.restore();
 }
 
+/** Mini-boss: a big ghost with a jack-o'-lantern head (same box as the witch). */
+function drawPumpkinGhostBoss(ctx: CanvasRenderingContext2D, boss: WitchBoss, elapsed: number) {
+  const cx = boss.x + BOSS_W / 2;
+  const cy = boss.y + BOSS_H / 2;
+  ctx.save();
+  if (boss.hurt > 0 && Math.floor(boss.hurt * 20) % 2 === 0) ctx.globalAlpha = 0.45;
+  // Ghost sheet body, slightly see-through
+  ctx.globalAlpha *= 0.92;
+  drawGhostShape(ctx, cx, cy + 22, 120, elapsed, "#e9e4ff", "#c3b8ec");
+  ctx.globalAlpha = boss.hurt > 0 && Math.floor(boss.hurt * 20) % 2 === 0 ? 0.45 : 1;
+  // Arms waving
+  ctx.strokeStyle = "#e9e4ff";
+  ctx.lineWidth = 12;
+  ctx.lineCap = "round";
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(cx + side * 50, cy + 18);
+    ctx.lineTo(cx + side * 78, cy + 2 + Math.sin(elapsed * 6 + side) * 12);
+    ctx.stroke();
+  }
+  // Jack-o'-lantern head, lit
+  drawPumpkin(ctx, cx - 46, cy - 62, 92, 78, true, elapsed);
+  ctx.restore();
+}
+
 /** Boss health and timer at the top of the screen. */
-export function drawBossHud(ctx: CanvasRenderingContext2D, boss: WitchBoss, maxHp: number, fightSeconds: number) {
+export function drawBossHud(ctx: CanvasRenderingContext2D, boss: WitchBoss, keyLabel: string) {
+  const maxHp = boss.maxHp;
+  const fightSeconds = boss.fightSeconds;
   const w = 360;
   const x = WORLD_WIDTH / 2 - w / 2;
   const y = 120;
@@ -1490,7 +1616,12 @@ export function drawBossHud(ctx: CanvasRenderingContext2D, boss: WitchBoss, maxH
   ctx.fillStyle = SPOOKY.slime;
   ctx.font = "900 15px 'Courier New', monospace";
   ctx.textAlign = "left";
-  const label = boss.defeated ? "WITCH DEFEATED!" : boss.phase === "leave" ? "THE WITCH FLEES" : "WITCH ATTACK! HIT HER WITH CANDY (X)";
+  const name = boss.kind === "pumpkin" ? "PUMPKIN GHOST" : "WITCH";
+  const label = boss.defeated
+    ? `${name} DEFEATED!`
+    : boss.phase === "leave"
+      ? `THE ${name} FLEES`
+      : `${name} ATTACK! THROW CANDY (${keyLabel})`;
   ctx.fillText(label, x + 16, y + 22);
   for (let k = 0; k < maxHp; k += 1) {
     ctx.fillStyle = k < boss.hp ? "#7ee04a" : "rgba(255,255,255,.18)";
@@ -1581,8 +1712,8 @@ export function drawDoor(ctx: CanvasRenderingContext2D, door: Door, elapsed: num
     roundedRect(ctx, cx - 64, by + 8, 38, 34, 7);
     ctx.fill();
     ctx.fillStyle = "#1b1220";
-    ctx.font = "900 22px Arial";
-    ctx.fillText(keyLabel, cx - 45, by + 33);
+    ctx.font = keyLabel.length > 2 ? "900 10px Arial" : "900 22px Arial";
+    ctx.fillText(keyLabel, cx - 45, by + (keyLabel.length > 2 ? 29 : 33));
     ctx.fillStyle = "#ffd84e";
     ctx.font = "900 22px Arial";
     ctx.fillText("KNOCK!", cx + 24, by + 36);
@@ -1632,18 +1763,40 @@ export function drawAmmoHud(ctx: CanvasRenderingContext2D, ammo: number, keyLabe
 }
 
 /** Banner for an active trick (mirror controls, fog). */
-export function drawCurseBanner(ctx: CanvasRenderingContext2D, label: string, seconds: number) {
+export function drawCurseBanner(ctx: CanvasRenderingContext2D, label: string, seconds: number, elapsed = 0) {
   ctx.save();
   ctx.translate(WORLD_WIDTH / 2, 196);
-  ctx.font = "900 18px 'Courier New', monospace";
-  const text = `${label} · ${Math.ceil(seconds)}`;
-  const w = Math.ceil(ctx.measureText(text).width) + 40;
-  ctx.fillStyle = "rgba(74,31,42,.92)";
-  roundedRect(ctx, -w / 2, -18, w, 36, 12);
+  const pulse = 1 + Math.sin(elapsed * 10) * 0.04;
+  ctx.scale(pulse, pulse);
+  ctx.font = "900 24px 'Courier New', monospace";
+  const text = `${label} · ${Math.ceil(seconds)}s`;
+  const w = Math.ceil(ctx.measureText(text).width) + 48;
+  ctx.fillStyle = "rgba(74,31,42,.95)";
+  roundedRect(ctx, -w / 2, -24, w, 48, 14);
   ctx.fill();
-  ctx.fillStyle = "#ffb3c1";
+  ctx.strokeStyle = "#ff6b8a";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.fillStyle = "#ffd0da";
   ctx.textAlign = "center";
-  ctx.fillText(text, 0, 6);
+  ctx.fillText(text, 0, 8);
+  ctx.restore();
+}
+
+/** Mirror curse: a "← →  swapped" sign bobbing over the rider's head. */
+export function drawSwappedSign(ctx: CanvasRenderingContext2D, cx: number, y: number, elapsed: number) {
+  ctx.save();
+  ctx.translate(cx, y + Math.sin(elapsed * 6) * 4);
+  ctx.fillStyle = "rgba(74,31,42,.95)";
+  roundedRect(ctx, -58, -20, 116, 36, 12);
+  ctx.fill();
+  ctx.strokeStyle = "#ff6b8a";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.fillStyle = "#ffd0da";
+  ctx.textAlign = "center";
+  ctx.font = "900 20px Arial";
+  ctx.fillText("→ ⇄ ←", 0, 6);
   ctx.restore();
 }
 
@@ -1903,4 +2056,94 @@ function mix(a: string, b: string, t: number) {
   const y = parseInt(b.slice(1), 16);
   const ch = (shift: number) => Math.round(((x >> shift) & 255) + ((((y >> shift) & 255) - ((x >> shift) & 255)) * t));
   return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+}
+
+// ---------------------------------------------------------------------------
+// Pumpkin Keychron logo
+// ---------------------------------------------------------------------------
+
+/**
+ * The round Keychron logo as a jack-o'-lantern: the black disc becomes a ribbed
+ * orange pumpkin with a stem, and the C / TK (cut out of the logo) glow like
+ * carved candlelight. Returns a PNG data URL (or null if the logo isn't loaded).
+ */
+export function makePumpkinKeychronLogo(logo: HTMLImageElement, size = 256): string | null {
+  if (!logo.complete || logo.naturalWidth === 0) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  const c = size / 2;
+  const r = size * 0.4; // pumpkin body radius, leaving room for the stem
+  const cy = c + size * 0.06;
+
+  // Body: overlapping lobes, darker towards the edges
+  const lobes = [-0.62, -0.32, 0.32, 0.62, 0];
+  for (const dx of lobes) {
+    const g = ctx.createRadialGradient(c + dx * r - r * 0.15, cy - r * 0.35, r * 0.1, c + dx * r, cy, r * 1.05);
+    g.addColorStop(0, SPOOKY.pumpkinLight);
+    g.addColorStop(0.6, SPOOKY.pumpkin);
+    g.addColorStop(1, SPOOKY.pumpkinDark);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(c + dx * r, cy, r * (dx === 0 ? 0.6 : 0.5), r * 0.98, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.strokeStyle = "rgba(122,44,0,.45)";
+  ctx.lineWidth = size * 0.012;
+  for (const dx of [-0.42, 0.42]) {
+    ctx.beginPath();
+    ctx.ellipse(c + dx * r * 0.5, cy, r * 0.42, r * 0.95, 0, -Math.PI / 2, Math.PI / 2, dx < 0);
+    ctx.stroke();
+  }
+
+  // Carved letters: take the transparent C / TK out of the logo disc
+  const mask = document.createElement("canvas");
+  mask.width = size;
+  mask.height = size;
+  const m = mask.getContext("2d");
+  if (!m) return null;
+  const logoSize = r * 1.7;
+  const lx = c - logoSize / 2;
+  const ly = cy - logoSize / 2;
+  m.fillStyle = "#fff";
+  m.beginPath();
+  m.arc(c, cy, logoSize * 0.46, 0, Math.PI * 2); // a bit inside the disc edge
+  m.fill();
+  m.globalCompositeOperation = "destination-out";
+  m.drawImage(logo, lx, ly, logoSize, logoSize);
+  // What's left is the letters: colour them candle yellow
+  m.globalCompositeOperation = "source-in";
+  m.fillStyle = "#ffe066";
+  m.fillRect(0, 0, size, size);
+  // Dark carved rim first, then the glow on top
+  ctx.save();
+  ctx.globalAlpha = 0.85;
+  ctx.filter = "brightness(0)";
+  ctx.drawImage(mask, size * 0.012, size * 0.016);
+  ctx.restore();
+  ctx.save();
+  ctx.shadowColor = "#ffb300";
+  ctx.shadowBlur = size * 0.06;
+  ctx.drawImage(mask, 0, 0);
+  ctx.restore();
+
+  // Stem and a curly vine
+  ctx.fillStyle = SPOOKY.stem;
+  ctx.beginPath();
+  ctx.moveTo(c - size * 0.05, cy - r * 0.92);
+  ctx.quadraticCurveTo(c - size * 0.04, cy - r * 1.18, c + size * 0.03, cy - r * 1.28);
+  ctx.lineTo(c + size * 0.07, cy - r * 1.2);
+  ctx.quadraticCurveTo(c + size * 0.02, cy - r * 1.1, c + size * 0.05, cy - r * 0.92);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = SPOOKY.stem;
+  ctx.lineWidth = size * 0.014;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(c + size * 0.04, cy - r * 1.0);
+  ctx.bezierCurveTo(c + size * 0.16, cy - r * 1.2, c + size * 0.2, cy - r * 0.95, c + size * 0.14, cy - r * 0.98);
+  ctx.stroke();
+  return canvas.toDataURL("image/png");
 }

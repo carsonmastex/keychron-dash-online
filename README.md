@@ -18,13 +18,17 @@ The game has two looks, chosen when it is built:
 
 - **Halloween** (default for Halloween 2026): haunted Melbourne, candy, pumpkin
   keycaps, re-skinned obstacles plus skeleton hands and bats, four power-ups
-  (broom, pumpkin shield, candy magnet, ghost mode), haunted stretches at
-  500, 1,500, 2,500 m ... (points x2 for 10 s), stomping (jump on pumpkins,
-  coffins, hands, the hearse and bombs), throwing candy with X (auto-aims at
-  ghosts, bats and witches), a witch boss every 1,000 m, and trick-or-treat
-  doors (X to knock), graveyard rails to grind, rooftop routes with gaps,
-  and missions at the top of the screen. The candy combo bonus stops
-  growing at 30 in this theme. Art is in `src/halloween.ts`.
+  (broom, shield, candy magnet, ghost mode), haunted stretches at
+  500, 1,500, 2,500 m ... (points x2 for 10 s, with lightning and thunder)
+  each followed by a Pumpkin Ghost mini-boss, stomping (jump on pumpkins,
+  coffins, hands, the hearse, bombs and spiders), throwing candy with Space
+  (auto-aims at ghosts, bats, witches and cobwebs; a torn cobweb drops its
+  spider onto the road), a witch boss every 1,000 m, and trick-or-treat
+  doors (Space to knock), graveyard rails to grind, rooftop routes with gaps,
+  and missions at the top of the screen. Controls: W / ↑ jump, S / ↓ slide,
+  A D / ← → move, Space throw / knock (X also works). The candy combo bonus
+  stops growing at 30 in this theme. The page logo is the round Keychron logo
+  drawn as a jack-o'-lantern. Art is in `src/halloween.ts`.
 - **PAX**: the original PAX Aus 2026 look.
 
 ```bash

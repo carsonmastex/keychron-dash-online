@@ -25,6 +25,8 @@ import {
   drawAmmoHud,
   drawBossHud,
   drawCurseBanner,
+  drawSwappedSign,
+  makePumpkinKeychronLogo,
   drawDoor,
   drawDoorResult,
   drawFogCurse,
@@ -92,6 +94,7 @@ type ObstacleKind =
   | "truck" // jump: a little Keychron delivery truck
   | "hand" // Halloween, jump: skeleton hand out of the road
   | "bats" // Halloween, slide: swarm of bats at head height
+  | "spider" // Halloween: drops from a cobweb you hit with candy (jump it or stomp it)
   | "bomb"; // Halloween boss: pumpkin bomb dropped by the witch (jump it or stomp it)
 
 // Spawn weights; `from` is the distance (m) where the obstacle starts appearing.
@@ -126,11 +129,13 @@ const BROOM_HEIGHT = 150; // px above the road while flying
 const MAGNET_RADIUS = 300;
 const GHOST_PASS_POINTS = 25;
 // Stomp: land on these from above to smash them and bounce
-const STOMPABLE = new Set<ObstacleKind>(["cone", "boxes", "hand", "truck", "bomb"]);
+const STOMPABLE = new Set<ObstacleKind>(["cone", "boxes", "hand", "truck", "bomb", "spider"]);
 const STOMP_POINTS = 150; // x chain: 150, 300, 450 ... until you touch the road
 const STOMP_BOUNCE = -820;
 // Throwing candy at ghosts, bats and witches
-const ZAPPABLE = new Set<ObstacleKind>(["drone", "bats", "plane"]);
+const ZAPPABLE = new Set<ObstacleKind>(["drone", "bats", "plane", "banner"]);
+const SPIDER_W = 64;
+const SPIDER_H = 40;
 const ZAP_POINTS = 200;
 const START_AMMO = 3;
 const MAX_AMMO = 30;
@@ -142,6 +147,11 @@ const BOSS_HP = 3;
 const BOSS_DEFEAT_POINTS = 3000;
 const BOSS_SURVIVE_POINTS = 500;
 const BOMB_SIZE = 44;
+// Pumpkin ghost mini-boss when a haunted stretch (the thunder) ends
+const MINI_BOSS_HP = 2;
+const MINI_BOSS_FIGHT_SECONDS = 10;
+const MINI_BOSS_DEFEAT_POINTS = 1200;
+const MINI_BOSS_SURVIVE_POINTS = 300;
 // Trick-or-treat doors
 const DOOR_FIRST_SECONDS = 20;
 const DOOR_GAP_MIN = 22;
@@ -339,7 +349,7 @@ type GameState = {
   doorTimer: number;
   curse: { kind: "mirror" | "fog"; timer: number } | null;
   doorResult: { text: string; treat: boolean; timer: number } | null;
-  actionQueued: boolean; // X / candy button pressed: knock if at a door, else throw
+  actionQueued: boolean; // Space / candy button pressed: knock if at a door, else throw
   platforms: Platform[];
   platformTimer: number;
   onPlatform: number | null; // id of the rail/roof the rider is standing on
@@ -526,14 +536,18 @@ const IS_TOUCH_DEVICE =
 // Two presses of R within this window restart a run
 const RESTART_DOUBLE_PRESS_MS = 500;
 
+// W A S D work as well as the arrow keys
 const isLeftKey = (event: KeyboardEvent) =>
-  event.code === "ArrowLeft" || event.code === "Numpad4" || event.key === "ArrowLeft";
+  event.code === "ArrowLeft" || event.code === "Numpad4" || event.key === "ArrowLeft" || event.code === "KeyA";
 const isRightKey = (event: KeyboardEvent) =>
-  event.code === "ArrowRight" || event.code === "Numpad6" || event.key === "ArrowRight";
+  event.code === "ArrowRight" || event.code === "Numpad6" || event.key === "ArrowRight" || event.code === "KeyD";
 const isUpKey = (event: KeyboardEvent) =>
-  event.code === "ArrowUp" || event.code === "Numpad8" || event.key === "ArrowUp";
+  event.code === "ArrowUp" || event.code === "Numpad8" || event.key === "ArrowUp" || event.code === "KeyW";
 const isDownKey = (event: KeyboardEvent) =>
-  event.code === "ArrowDown" || event.code === "Numpad2" || event.key === "ArrowDown";
+  event.code === "ArrowDown" || event.code === "Numpad2" || event.key === "ArrowDown" || event.code === "KeyS";
+// Halloween: Space throws candy / knocks (X still works too); jump is W / ↑
+const isActionKey = (event: KeyboardEvent) => event.code === "Space" || event.code === "KeyX";
+const ACTION_KEY_LABEL = "SPACE";
 
 function roundedRect(
   ctx: CanvasRenderingContext2D,
@@ -3604,10 +3618,10 @@ function drawOverlay(
       HALLOWEEN
         ? IS_TOUCH_DEVICE
           ? "Buttons below:  ← → move   ↓ slide   ↑ jump   🍬 throw candy / knock"
-          : "SPACE / ↑ jump    ↓ slide    ← → move    X throw candy / knock on doors"
+          : "W / ↑ jump    S / ↓ slide    A D / ← → move    SPACE throw candy / knock on doors"
         : IS_TOUCH_DEVICE
           ? "Use the buttons below:  ← → move    ↓ slide    ↑ jump"
-          : "SPACE / ↑ jump    ↓ slide    ← → move",
+          : "SPACE / W / ↑ jump    S / ↓ slide    A D / ← → move",
       WORLD_WIDTH / 2,
       520,
     );
@@ -3680,6 +3694,17 @@ function PizzaDashGame() {
   const [hud, setHud] = useState<Hud>({ score: 0, pizzas: 0, lives: 3, distance: 0 });
   // Halloween: the touch candy button becomes "Knock" while passing a door
   const [atDoor, setAtDoor] = useState(false);
+  // Halloween: the round Keychron logo as a jack-o'-lantern (made once the logo loads)
+  const [brandLogoUrl, setBrandLogoUrl] = useState(keychronLogoUrl);
+  useEffect(() => {
+    if (!HALLOWEEN) return;
+    const image = new window.Image();
+    image.onload = () => {
+      const pumpkin = makePumpkinKeychronLogo(image);
+      if (pumpkin) setBrandLogoUrl(pumpkin);
+    };
+    image.src = keychronLogoUrl;
+  }, []);
   const atDoorRef = useRef(false);
 
   const changeMode = useCallback((nextMode: GameMode) => {
@@ -3940,8 +3965,8 @@ function PizzaDashGame() {
       } else if (effect === "thunder") {
         // Real thunder: a sharp crack, then a rolling rumble that swells a few
         // times while its tone sinks, lasting about 3 seconds
-        scheduleNoise(bus, sfx, now, 0.25, 0.22, 1800, "highpass", 0.5, 0.004);
-        scheduleNoise(bus, sfx, now + 0.06, 0.18, 0.14, 1200, "highpass", 0.5, 0.004);
+        scheduleNoise(bus, sfx, now, 0.3, 0.14, 1800, "highpass", 0.5, 0.004);
+        scheduleNoise(bus, sfx, now + 0.06, 0.25, 0.09, 1200, "highpass", 0.5, 0.004);
         const source = context.createBufferSource();
         const filter = context.createBiquadFilter();
         const envelope = context.createGain();
@@ -3953,18 +3978,15 @@ function PizzaDashGame() {
         filter.frequency.setValueAtTime(900, now);
         filter.frequency.exponentialRampToValueAtTime(140, now + 3);
         envelope.gain.setValueAtTime(0.0001, now);
-        envelope.gain.exponentialRampToValueAtTime(0.5, now + 0.12);
-        let t = now + 0.12;
-        let level = 0.5;
-        while (t < now + 2.6) {
-          const dip = 0.15 + Math.random() * 0.25;
-          const swell = 0.12 + Math.random() * 0.25;
-          level *= 0.72;
-          envelope.gain.exponentialRampToValueAtTime(Math.max(0.02, level * 0.45), t + dip);
-          envelope.gain.exponentialRampToValueAtTime(Math.max(0.03, level), t + dip + swell);
-          t += dip + swell;
-        }
-        envelope.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+        // Peak kept moderate so the master compressor doesn't duck the music
+        // and then "pump" it back in little bursts after the thunder
+        envelope.gain.exponentialRampToValueAtTime(0.24, now + 0.15);
+        envelope.gain.exponentialRampToValueAtTime(0.1, now + 0.6);
+        envelope.gain.exponentialRampToValueAtTime(0.17, now + 0.95); // second roll
+        envelope.gain.exponentialRampToValueAtTime(0.07, now + 1.5);
+        envelope.gain.exponentialRampToValueAtTime(0.1, now + 1.85); // last, softer roll
+        envelope.gain.exponentialRampToValueAtTime(0.0001, now + 3.4); // one long smooth fade
+        const t = now + 3.4;
         source.connect(filter);
         filter.connect(envelope);
         envelope.connect(sfx);
@@ -4221,12 +4243,12 @@ function PizzaDashGame() {
       ) {
         startGame();
       }
-      if ((event.code === "Space" || isUpKey(event)) && !event.repeat) jump();
+      if (((!HALLOWEEN && event.code === "Space") || isUpKey(event)) && !event.repeat) jump();
       if (isLeftKey(event)) keysRef.current.left = true;
       if (isRightKey(event)) keysRef.current.right = true;
       if (isDownKey(event)) keysRef.current.down = true;
       if (event.code === "KeyP" && !event.repeat) togglePause();
-      if (HALLOWEEN && event.code === "KeyX" && !event.repeat && modeRef.current === "running") {
+      if (HALLOWEEN && isActionKey(event) && !event.repeat && modeRef.current === "running") {
         gameRef.current.actionQueued = true;
       }
       // Restart needs R pressed twice quickly: players type K-E-Y-C-H-R-O-N on
@@ -4369,6 +4391,7 @@ function PizzaDashGame() {
         hand: { w: 58, h: 66, y: GROUND_Y - 64 },
         bats: { w: 92, h: 36, y: GROUND_Y - 128 },
         bomb: { w: BOMB_SIZE, h: BOMB_SIZE, y: GROUND_Y - BOMB_SIZE }, // only dropped by the boss
+        spider: { w: SPIDER_W, h: SPIDER_H, y: GROUND_Y - SPIDER_H }, // only from a torn cobweb
       };
       const spec = specs[kind];
       const spawnX = WORLD_WIDTH + 50;
@@ -4573,7 +4596,17 @@ function PizzaDashGame() {
           if (game.activePower.timer <= 0) game.activePower = null;
         }
         game.pumpkinShield = Math.max(0, game.pumpkinShield - dt);
+        const wasHaunted = game.haunted > 0;
         game.haunted = Math.max(0, game.haunted - dt);
+        if (wasHaunted && game.haunted === 0 && !game.boss) {
+          game.boss = {
+            kind: "pumpkin", maxHp: MINI_BOSS_HP, fightSeconds: MINI_BOSS_FIGHT_SECONDS,
+            phase: "enter", timer: 1.5, hp: MINI_BOSS_HP, x: WORLD_WIDTH + 80, y: 200, bombTimer: 1.8, hurt: 0, defeated: false,
+          };
+          game.milestoneFlash = 1.6;
+          game.milestoneLabel = "PUMPKIN GHOST!";
+          playSound("boss");
+        }
         game.lightningAge += dt;
         if (game.haunted > 0) {
           game.nextLightning -= dt;
@@ -4669,7 +4702,7 @@ function PizzaDashGame() {
             boss.y = 200 + Math.sin(game.elapsed * 2) * 14;
             if (boss.timer <= 0) {
               boss.phase = "fight";
-              boss.timer = BOSS_FIGHT_SECONDS;
+              boss.timer = boss.fightSeconds;
             }
           } else if (boss.phase === "fight") {
             boss.x = 870 + Math.sin(game.elapsed * 0.9) * 60;
@@ -4687,13 +4720,14 @@ function PizzaDashGame() {
                 grazed: false,
                 vy: 60,
               });
-              boss.bombTimer = 1.4 + Math.random() * 0.7;
+              boss.bombTimer = boss.kind === "pumpkin" ? 1.9 + Math.random() * 0.8 : 1.4 + Math.random() * 0.7;
             }
             if (boss.timer <= 0) {
               boss.phase = "leave";
               boss.timer = 1.6;
-              game.score += BOSS_SURVIVE_POINTS * mult;
-              game.scorePopups.push({ x: WORLD_WIDTH / 2, y: 250, text: `SURVIVED! +${BOSS_SURVIVE_POINTS * mult}`, timer: 1.4, duration: 1.4, color: "#7ee04a" });
+              const survive = (boss.kind === "pumpkin" ? MINI_BOSS_SURVIVE_POINTS : BOSS_SURVIVE_POINTS) * mult;
+              game.score += survive;
+              game.scorePopups.push({ x: WORLD_WIDTH / 2, y: 250, text: `SURVIVED! +${survive}`, timer: 1.4, duration: 1.4, color: "#7ee04a" });
             }
           } else {
             boss.x += 560 * dt;
@@ -4740,7 +4774,10 @@ function PizzaDashGame() {
         game.milestoneLabel = `${currentMilestone}M!`;
         addParticles(player.x + player.width / 2, player.y - 20, "#ffd84e", 14);
         if (HALLOWEEN && currentMilestone % BOSS_EVERY_METRES === 0) {
-          game.boss = { phase: "enter", timer: 1.5, hp: BOSS_HP, x: WORLD_WIDTH + 80, y: 200, bombTimer: 1.4, hurt: 0, defeated: false };
+          game.boss = {
+            kind: "witch", maxHp: BOSS_HP, fightSeconds: BOSS_FIGHT_SECONDS,
+            phase: "enter", timer: 1.5, hp: BOSS_HP, x: WORLD_WIDTH + 80, y: 200, bombTimer: 1.4, hurt: 0, defeated: false,
+          };
           game.milestoneLabel = `${currentMilestone}M · WITCH ATTACK!`;
           playSound("boss");
         } else if (HALLOWEEN && currentMilestone % HAUNTED_EVERY_METRES === 0) {
@@ -5095,6 +5132,20 @@ function PizzaDashGame() {
             obstacle.smashed = 0;
             shot.x = WORLD_WIDTH + 999; // used up
             missionEvent("zap");
+            if (obstacle.kind === "banner") {
+              // The web comes down and its spider drops onto the road
+              game.obstacles.push({
+                id: game.nextId++,
+                kind: "spider",
+                x: obstacle.x + obstacle.width / 2 - SPIDER_W / 2,
+                y: obstacle.y + obstacle.height - 10,
+                width: SPIDER_W,
+                height: SPIDER_H,
+                hit: false,
+                grazed: false,
+                vy: 0,
+              });
+            }
             game.score += ZAP_POINTS * mult;
             game.scorePopups.push({
               x: obstacle.x + obstacle.width / 2,
@@ -5120,12 +5171,13 @@ function PizzaDashGame() {
                 boss.defeated = true;
                 boss.phase = "leave";
                 boss.timer = 1.6;
-                game.score += BOSS_DEFEAT_POINTS * mult;
+                const defeat = (boss.kind === "pumpkin" ? MINI_BOSS_DEFEAT_POINTS : BOSS_DEFEAT_POINTS) * mult;
+                game.score += defeat;
                 game.shake = Math.max(game.shake, 0.4);
                 game.scorePopups.push({
                   x: WORLD_WIDTH / 2,
                   y: 250,
-                  text: `WITCH DEFEATED! +${BOSS_DEFEAT_POINTS * mult}`,
+                  text: `${boss.kind === "pumpkin" ? "PUMPKIN GHOST" : "WITCH"} DEFEATED! +${defeat}`,
                   timer: 1.6,
                   duration: 1.6,
                   color: "#7ee04a",
@@ -5275,7 +5327,7 @@ function PizzaDashGame() {
         const p = game.player;
         game.doors.forEach((door) => {
           const canKnock = !door.knocked && door.x < p.x + 130 && door.x + DOOR_W > p.x + 20;
-          drawDoor(ctx, door, game.elapsed, canKnock, IS_TOUCH_DEVICE ? "🚪" : "X");
+          drawDoor(ctx, door, game.elapsed, canKnock, IS_TOUCH_DEVICE ? "🚪" : ACTION_KEY_LABEL);
         });
         game.platforms.forEach((platform) => {
           if (platform.kind === "rail") drawRail(ctx, platform, game.elapsed, game.onPlatform === platform.id);
@@ -5299,6 +5351,9 @@ function PizzaDashGame() {
       if (HALLOWEEN && game.onPlatform !== null && game.platforms.some((p) => p.id === game.onPlatform && p.kind === "rail")) {
         drawBalanceMeter(ctx, game.player.x + 76, game.player.y - 62, game.grindBalance, game.grindLevel);
       }
+      if (HALLOWEEN && game.curse?.kind === "mirror") {
+        drawSwappedSign(ctx, game.player.x + 76, game.player.y - 40, game.elapsed);
+      }
       if (HALLOWEEN) {
         game.projectiles.forEach((shot) => drawProjectile(ctx, shot));
         if (game.curse?.kind === "fog") drawFogCurse(ctx, game.elapsed, Math.min(1, game.curse.timer));
@@ -5309,16 +5364,16 @@ function PizzaDashGame() {
       if (HALLOWEEN) {
         drawPowerUpHud(ctx, game.activePower, game.pumpkinShield);
         drawMissionHud(ctx, game.mission, game.missionFlash);
-        drawAmmoHud(ctx, game.candyAmmo, IS_TOUCH_DEVICE ? "🍬 BUTTON" : "X");
-        if (game.boss) drawBossHud(ctx, game.boss, BOSS_HP, BOSS_FIGHT_SECONDS);
+        drawAmmoHud(ctx, game.candyAmmo, IS_TOUCH_DEVICE ? "🍬 BUTTON" : ACTION_KEY_LABEL);
+        if (game.boss) drawBossHud(ctx, game.boss, IS_TOUCH_DEVICE ? "🍬" : ACTION_KEY_LABEL);
         else drawHauntedBanner(ctx, game.haunted, game.elapsed);
         if (game.curse) {
-          drawCurseBanner(ctx, game.curse.kind === "mirror" ? "TRICK: LEFT ↔ RIGHT" : "TRICK: FOG", game.curse.timer);
+          drawCurseBanner(ctx, game.curse.kind === "mirror" ? "TRICK: LEFT ↔ RIGHT SWAPPED" : "TRICK: FOG", game.curse.timer, game.elapsed);
         }
         if (game.doorResult) {
           drawDoorResult(ctx, game.doorResult.text, game.doorResult.treat, game.doorResult.timer);
         } else if (game.doors.some((d) => !d.knocked && d.x < game.player.x + 130 && d.x + DOOR_W > game.player.x + 20)) {
-          drawKnockHint(ctx, IS_TOUCH_DEVICE ? "Tap 🚪 Knock: trick or treat?" : "Press X to knock: trick or treat?", game.elapsed);
+          drawKnockHint(ctx, IS_TOUCH_DEVICE ? "Tap 🚪 Knock: trick or treat?" : "Press SPACE to knock: trick or treat?", game.elapsed);
         }
       }
       if (game.keychronCelebration > 0) drawKeychronCelebration(ctx, game);
@@ -5406,7 +5461,7 @@ function PizzaDashGame() {
     <main className="site-shell">
       <nav className="topbar" aria-label="Event brands">
         <div className="brand-lockup">
-          <img className="keychron-logo" src={keychronLogoUrl} alt="" width={40} height={40} />
+          <img className={HALLOWEEN ? "keychron-logo pumpkin-logo" : "keychron-logo"} src={brandLogoUrl} alt="" width={40} height={40} />
           <span>KEYCHRON</span>
           <b>×</b>
           {HALLOWEEN ? (
@@ -5446,7 +5501,9 @@ function PizzaDashGame() {
             className="game-canvas"
             width={WORLD_WIDTH}
             height={WORLD_HEIGHT}
-            aria-label="Game screen. Press Enter to start, Space or Up to jump, Down to slide, Left and Right to move."
+            aria-label={HALLOWEEN
+              ? "Game screen. Press Enter to start, W or Up to jump, S or Down to slide, A D or Left and Right to move, Space to throw candy."
+              : "Game screen. Press Enter to start, Space or Up to jump, Down to slide, Left and Right to move."}
             onPointerDown={() => {
               if (modeRef.current === "ready") startGame();
               else if (modeRef.current === "paused") togglePause();
@@ -5456,7 +5513,7 @@ function PizzaDashGame() {
             <div className="result-overlay" aria-live="polite">
               <div className={`result-card ${gameOverView === "leaderboard" ? "leaderboard-card" : ""}`}>
                 <div className="result-brand-lockup" aria-label={HALLOWEEN ? "Keychron Halloween 2026" : "Keychron and PAX Aus 2026"}>
-                  <img className="result-keychron-logo" src={keychronLogoUrl} alt="Keychron" />
+                  <img className={HALLOWEEN ? "result-keychron-logo pumpkin-logo" : "result-keychron-logo"} src={brandLogoUrl} alt="Keychron" />
                   <span>×</span>
                   {HALLOWEEN ? (
                     <span className="result-halloween-tag">🎃 HALLOWEEN</span>
@@ -5680,7 +5737,7 @@ function PizzaDashGame() {
           {HALLOWEEN ? (
             <>
               <h2>Survive Halloween night</h2>
-              <p>You skate automatically and speed up the further you go. Jump over pumpkins, gravestones, slime, coffins, skeleton hands and the hearse, or jump right ON pumpkins, coffins and hands to smash them. Slide under signs, cobwebs, ghosts and bats, and stay low under flying witches. Every candy you grab is ammo: throw it to zap ghosts, bats and witches. Every 1,000 m the witch attacks: dodge her pumpkin bombs or hit her 3 times. Knock on doors for a treat (or a trick!), grab power-ups, and enjoy double points in the haunted stretches. Jump onto graveyard rails to grind (keep your balance with ← → for up to x3 points), take the rooftop route for extra candy and gap-jump tricks, and complete the missions at the top of the screen.</p>
+              <p>You skate automatically and speed up the further you go. Jump over pumpkins, gravestones, slime, coffins, skeleton hands and the hearse, or jump right ON pumpkins, coffins and hands to smash them. Slide under signs, cobwebs, ghosts and bats, and stay low under flying witches. Every candy you grab is ammo: press Space to throw it and zap ghosts, bats and witches, or tear down a cobweb (then stomp the spider that drops out). When the thunder stops, the Pumpkin Ghost attacks (hit it twice), and every 1,000 m the witch attacks: dodge their pumpkin bombs or hit her 3 times. Knock on doors for a treat (or a trick!), grab power-ups, and enjoy double points in the haunted stretches. Jump onto graveyard rails to grind (keep your balance with ← → for up to x3 points), take the rooftop route for extra candy and gap-jump tricks, and complete the missions at the top of the screen.</p>
             </>
           ) : (
             <>
@@ -5691,17 +5748,17 @@ function PizzaDashGame() {
         </div>
         <div className="keyboard-guide">
           <div className="guide-item">
-            <kbd>SPACE</kbd>
+            <kbd>{HALLOWEEN ? "W / ↑" : "SPACE"}</kbd>
             <div><b>Jump</b><span>{HALLOWEEN ? "Pumpkins, slime, gravestones, coffins, skeleton hands, the hearse" : "Cones, puddles, barriers, trucks, boxes"}</span></div>
           </div>
           <div className="guide-item">
-            <div className="key-cluster"><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd></div>
-            <div><b>Slide &amp; dodge</b><span>{HALLOWEEN ? "Hold ↓ to slide under signs, cobwebs, ghosts and bats" : "Hold ↓ to slide under signs, banners and drones"}</span></div>
+            <div className="key-cluster">{HALLOWEEN ? <><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></> : <><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd></>}</div>
+            <div><b>Slide &amp; dodge</b><span>{HALLOWEEN ? "Hold S / ↓ to slide under signs, cobwebs, ghosts and bats. A D or ← → move" : "Hold ↓ to slide under signs, banners and drones"}</span></div>
           </div>
           {HALLOWEEN && (
             <div className="guide-item">
-              <kbd>X</kbd>
-              <div><b>Throw candy / knock</b><span>Zap ghosts, bats and the witch. At a door, X knocks instead</span></div>
+              <kbd>SPACE</kbd>
+              <div><b>Throw candy / knock</b><span>Zap ghosts, bats, cobwebs and bosses. At a door, Space knocks instead</span></div>
             </div>
           )}
           <div className="guide-item compact-guide">
