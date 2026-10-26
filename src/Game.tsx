@@ -805,6 +805,127 @@ function scheduleMusicStep(bus: AudioBus, step: number, start: number, stepLengt
   }
 }
 
+// ---- Halloween sound set ----
+// Everything is in A minor (the spooky music's key) so effects never clash
+// with the soundtrack. Candy plinks walk up an A-minor pentatonic scale with
+// the combo and wrap around, instead of getting ever higher.
+const SPOOKY_PENTATONIC = [880, 1046.5, 1174.66, 1318.51, 1567.98];
+
+/** Plays the Halloween version of an effect. Returns false if it has none. */
+function playHalloweenSound(bus: AudioBus, effect: SoundEffect, combo: number, now: number): boolean {
+  const { context, sfx } = bus;
+  const tone = (start: number, duration: number, from: number, to: number, gain: number, type: OscillatorType = "sine", detune = 0) =>
+    scheduleTone(context, sfx, start, duration, from, to, gain, type, detune);
+  // Bell / music-box timbre: fundamental plus soft inharmonic partials
+  const bell = (start: number, frequency: number, gain: number, duration = 0.5) => {
+    tone(start, duration, frequency, frequency, gain, "sine");
+    tone(start, duration * 0.7, frequency * 2.01, frequency * 2.01, gain * 0.32, "sine");
+    tone(start, duration * 0.45, frequency * 2.76, frequency * 2.76, gain * 0.14, "sine");
+  };
+
+  switch (effect) {
+    case "pizza": {
+      // Candy: a music-box plink on the pentatonic scale
+      const note = SPOOKY_PENTATONIC[Math.max(0, combo - 1) % SPOOKY_PENTATONIC.length];
+      bell(now, note, 0.05, 0.28);
+      return true;
+    }
+    case "jump":
+      scheduleNoise(bus, sfx, now, 0.16, 0.035, 700, "bandpass", 0.6);
+      tone(now, 0.16, 196, 392, 0.05, "triangle");
+      return true;
+    case "keycap":
+      // Letter: two spooky celesta notes
+      bell(now, 880, 0.05, 0.4);
+      bell(now + 0.08, 1318.51, 0.045, 0.45);
+      return true;
+    case "keychron":
+      // Full KEYCHRON: A-minor bell arpeggio over a low hum
+      [440, 523.25, 659.25, 880, 1046.5].forEach((frequency, index) => bell(now + index * 0.08, frequency, 0.055, 0.6));
+      tone(now, 0.9, 110, 110, 0.05, "triangle");
+      return true;
+    case "bigpizza":
+      // Spooky keyboard bonus: a harp-like run up the pentatonic scale
+      [440, 523.25, 587.33, 659.25, 783.99, 880, 1046.5, 1174.66].forEach((frequency, index) =>
+        bell(now + index * 0.045, frequency, 0.045, 0.45),
+      );
+      return true;
+    case "graze":
+      scheduleNoise(bus, sfx, now, 0.1, 0.03, 1800, "bandpass", 0.7);
+      return true;
+    case "hit":
+      // Pumpkin thud and a ghostly "ooh"
+      tone(now, 0.3, 150, 55, 0.16, "sine");
+      scheduleNoise(bus, sfx, now, 0.22, 0.12, 380, "lowpass", 0.7);
+      tone(now + 0.06, 0.45, 330, 220, 0.04, "triangle", -8);
+      tone(now + 0.06, 0.45, 333, 222, 0.025, "sine", 8);
+      return true;
+    case "gameover":
+      // Organ "dun dun duuun"
+      [293.66, 277.18, 261.63].forEach((frequency, index) => {
+        tone(now + index * 0.22, 0.24, frequency, frequency, 0.05, "triangle");
+        tone(now + index * 0.22, 0.24, frequency / 2, frequency / 2, 0.04, "sine");
+      });
+      tone(now + 0.66, 1.1, 220, 216, 0.06, "triangle", -6);
+      tone(now + 0.66, 1.1, 110, 108, 0.05, "sine");
+      return true;
+    case "start":
+      bell(now, 440, 0.06, 0.6);
+      bell(now + 0.12, 659.25, 0.05, 0.6);
+      tone(now, 0.5, 110, 110, 0.04, "triangle");
+      return true;
+    case "milestone":
+      // Church bell
+      bell(now, 329.63, 0.08, 1.2);
+      bell(now + 0.35, 329.63, 0.05, 1);
+      return true;
+    case "miss":
+      tone(now, 0.25, 329.63, 311.13, 0.045, "triangle");
+      tone(now + 0.22, 0.4, 293.66, 261.63, 0.045, "triangle");
+      return true;
+    case "powerup":
+      [880, 1046.5, 1318.51, 1760].forEach((frequency, index) => bell(now + index * 0.05, frequency, 0.04, 0.35));
+      return true;
+    case "treat":
+      [1046.5, 1318.51, 1567.98].forEach((frequency, index) => bell(now + index * 0.07, frequency, 0.045, 0.4));
+      return true;
+    case "trick":
+      tone(now, 0.55, 330, 165, 0.045, "triangle", -12);
+      tone(now + 0.03, 0.5, 335, 168, 0.03, "triangle", 12);
+      return true;
+    case "stomp":
+      // Squelchy pumpkin smash
+      tone(now, 0.14, 180, 70, 0.1, "sine");
+      scheduleNoise(bus, sfx, now, 0.14, 0.07, 600, "lowpass", 0.9);
+      bell(now + 0.05, 659.25, 0.025, 0.2);
+      return true;
+    case "throw":
+      scheduleNoise(bus, sfx, now, 0.1, 0.03, 2000, "bandpass", 0.8);
+      return true;
+    case "zap":
+      // Ghost "poof"
+      tone(now, 0.2, 880, 220, 0.05, "sine");
+      scheduleNoise(bus, sfx, now, 0.18, 0.035, 1500, "bandpass", 0.6);
+      return true;
+    case "shieldbreak":
+      scheduleNoise(bus, sfx, now, 0.2, 0.07, 800, "bandpass", 0.8);
+      tone(now, 0.22, 330, 140, 0.05, "triangle");
+      return true;
+    case "boss":
+      // Witch cackle: "heh-heh-heh-heh" stepping down
+      [784, 740, 698, 659, 622].forEach((frequency, index) => {
+        tone(now + index * 0.1, 0.08, frequency, frequency * 0.9, 0.05, "triangle", index % 2 ? 10 : -10);
+      });
+      scheduleNoise(bus, sfx, now, 0.6, 0.04, 260, "lowpass", 0.8);
+      return true;
+    case "grind":
+      scheduleNoise(bus, sfx, now, 0.14, 0.018, 2600, "bandpass", 0.7);
+      return true;
+    default:
+      return false; // toggle, haunted, thunder keep their sounds
+  }
+}
+
 const nightShade = (color: string, dark: string, nightFactor: number) =>
   nightFactor > 0.05 ? lerpColor(color, dark, nightFactor) : color;
 
@@ -3548,6 +3669,7 @@ function PizzaDashGame() {
       if (!bus) return;
       const { context, sfx } = bus;
       const now = context.currentTime + 0.006;
+      if (HALLOWEEN && playHalloweenSound(bus, effect, combo, now)) return;
 
       if (effect === "jump") {
         scheduleNoise(bus, sfx, now, 0.19, 0.075, 1150, "bandpass", 0.65);
