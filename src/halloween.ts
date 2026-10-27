@@ -75,7 +75,7 @@ export type ActivePower = { kind: Exclude<PowerUpKind, "shield">; timer: number;
 
 export const POWER_UP_INFO: Record<PowerUpKind, { name: string; seconds: number; color: string; blurb: string }> = {
   // One clear hue each, none of them used by obstacles (orange pumpkins, white ghosts, purple bats)
-  broom: { name: "BROOM", seconds: 6, color: "#ffd84e", blurb: "Fly over everything" },
+  broom: { name: "BROOM", seconds: 6, color: "#ffd84e", blurb: "Fly ↑↓, sweep everything" },
   shield: { name: "SHIELD", seconds: 20, color: "#4d8dff", blurb: "Blocks one hit" },
   magnet: { name: "CANDY MAGNET", seconds: 8, color: "#ff5fa2", blurb: "Pulls candy to you" },
   ghost: { name: "GHOST MODE", seconds: 5, color: "#3ee6c1", blurb: "Pass through obstacles" },

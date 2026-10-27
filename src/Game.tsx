@@ -131,6 +131,13 @@ const BROOM_RISE_SECONDS = 0.35;
 const BROOM_FALL_SECONDS = 0.8; // gentle glide back down when the broom runs out
 const BROOM_LANDING_GRACE = 1.8; // can't be hit while gliding down and just after landing
 const BROOM_WARNING_SECONDS = 1.5; // "LANDING" sign before the broom runs out
+// Flying the broom: hold ↑/W to climb, ↓/S to dive
+const BROOM_MIN_ALTITUDE = 30;
+const BROOM_MAX_ALTITUDE = 290; // stays below the score panels
+const BROOM_CLIMB_SPEED = 420; // px per second
+// Rewards while flying: a wavy trail of sky candy, and obstacles you fly into get swept away
+const BROOM_CANDY_EVERY = 0.42; // seconds
+const BROOM_SWEEP_POINTS = 100;
 const MAGNET_RADIUS = 300;
 const GHOST_PASS_POINTS = 25;
 // Stomp: land on these from above to smash them and bounce
@@ -340,6 +347,9 @@ type GameState = {
   activePower: ActivePower | null;
   pumpkinShield: number; // seconds left; blocks one hit
   broomLift: number; // 0 on the road .. 1 flying
+  broomAltitude: number; // px above the road while flying (↑/↓ steer it)
+  broomCandyTimer: number;
+  broomHint: number; // seconds left of the "how to fly" sign
   haunted: number; // seconds left in a haunted stretch
   lightningAge: number; // seconds since the last strike (Infinity = none)
   lightningX: number;
@@ -464,6 +474,9 @@ const freshGame = (): GameState => ({
   activePower: null,
   pumpkinShield: 0,
   broomLift: 0,
+  broomAltitude: BROOM_HEIGHT,
+  broomCandyTimer: 0,
+  broomHint: 0,
   haunted: 0,
   lightningAge: Infinity,
   lightningX: 0,
@@ -3721,7 +3734,7 @@ function PizzaDashGame() {
   if (__DEBUG__) (window as unknown as { __game: typeof gameRef }).__game = gameRef;
   const modeRef = useRef<GameMode>("ready");
   const gameOverViewRef = useRef<GameOverView>("entry");
-  const keysRef = useRef({ left: false, right: false, down: false });
+  const keysRef = useRef({ left: false, right: false, down: false, up: false });
   const audioBusRef = useRef<AudioBus | null>(null);
   const musicTimerRef = useRef<number | null>(null);
   const musicStepRef = useRef(0);
@@ -4106,7 +4119,7 @@ function PizzaDashGame() {
   const startGame = useCallback(() => {
     const next = freshGame();
     gameRef.current = next;
-    keysRef.current = { left: false, right: false, down: false };
+    keysRef.current = { left: false, right: false, down: false, up: false };
     void startRun();
     setSaveError("");
     setLastSavedEntryId(null);
@@ -4217,14 +4230,14 @@ function PizzaDashGame() {
   }, []);
 
   const setControl = useCallback(
-    (control: "left" | "right" | "down", pressed: boolean) => {
+    (control: "left" | "right" | "down" | "up", pressed: boolean) => {
       keysRef.current[control] = pressed;
     },
     [],
   );
 
   const holdControl = (
-    control: "left" | "right" | "down",
+    control: "left" | "right" | "down" | "up",
     event: ReactPointerEvent<HTMLButtonElement>,
   ) => {
     event.preventDefault();
@@ -4309,6 +4322,7 @@ function PizzaDashGame() {
       if (isLeftKey(event)) keysRef.current.left = true;
       if (isRightKey(event)) keysRef.current.right = true;
       if (isDownKey(event)) keysRef.current.down = true;
+      if (isUpKey(event)) keysRef.current.up = true;
       if (event.code === "KeyP" && !event.repeat) togglePause();
       if (HALLOWEEN && isActionKey(event) && !event.repeat && modeRef.current === "running") {
         gameRef.current.actionQueued = true;
@@ -4334,15 +4348,16 @@ function PizzaDashGame() {
       if (isLeftKey(event)) keysRef.current.left = false;
       if (isRightKey(event)) keysRef.current.right = false;
       if (isDownKey(event)) keysRef.current.down = false;
+      if (isUpKey(event)) keysRef.current.up = false;
     };
     const onVisibility = () => {
       if (document.hidden && modeRef.current === "running") {
         changeMode("paused");
       }
-      keysRef.current = { left: false, right: false, down: false };
+      keysRef.current = { left: false, right: false, down: false, up: false };
     };
     const onBlur = () => {
-      keysRef.current = { left: false, right: false, down: false };
+      keysRef.current = { left: false, right: false, down: false, up: false };
     };
     window.addEventListener("keydown", onKeyDown, { passive: false });
     window.addEventListener("keyup", onKeyUp);
@@ -4569,7 +4584,8 @@ function PizzaDashGame() {
       const horizontal = onRailNow ? 0 : steer * 330 * dt; // on a rail, ← → balance instead
       player.x = clamp(player.x + horizontal, 92, 420);
 
-      const wantsSlide = keysRef.current.down && player.grounded && !(HALLOWEEN && game.onPlatform !== null);
+      const wantsSlide =
+        keysRef.current.down && player.grounded && !(HALLOWEEN && (game.onPlatform !== null || game.broomLift > 0));
       if (wantsSlide && !player.sliding) {
         player.sliding = true;
         player.height = 74;
@@ -4644,6 +4660,33 @@ function PizzaDashGame() {
         const liftBefore = game.broomLift;
         game.broomLift = clamp(game.broomLift + (flying ? dt / BROOM_RISE_SECONDS : -dt / BROOM_FALL_SECONDS), 0, 1);
         if (liftBefore > 0 && game.broomLift === 0) player.y = GROUND_Y - player.height; // touch down exactly
+        if (flying && liftBefore === 0) {
+          // Take-off: start at the usual height and show how to fly
+          game.broomAltitude = BROOM_HEIGHT;
+          game.broomCandyTimer = 0.5;
+          game.broomHint = 2.5;
+        }
+        game.broomHint = Math.max(0, game.broomHint - dt);
+        if (flying) {
+          const climb = Number(keysRef.current.up) - Number(keysRef.current.down);
+          game.broomAltitude = clamp(game.broomAltitude + climb * BROOM_CLIMB_SPEED * dt, BROOM_MIN_ALTITUDE, BROOM_MAX_ALTITUDE);
+          // A wavy trail of candy across the sky to chase
+          game.broomCandyTimer -= dt;
+          if (game.broomCandyTimer <= 0) {
+            game.broomCandyTimer = BROOM_CANDY_EVERY;
+            const wave = Math.sin(game.elapsed * 1.7) * 0.5 + 0.5;
+            const altitude = BROOM_MIN_ALTITUDE + 40 + wave * (BROOM_MAX_ALTITUDE - BROOM_MIN_ALTITUDE - 40);
+            game.pizzas.push({
+              id: game.nextId++,
+              x: WORLD_WIDTH + 60,
+              y: GROUND_Y - altitude - 70,
+              size: 48,
+              collected: false,
+              phase: Math.random() * Math.PI * 2,
+              color: SWITCH_COLORS[Math.floor(Math.random() * SWITCH_COLORS.length)],
+            });
+          }
+        }
         if (game.broomLift > 0) {
           game.onPlatform = null;
           const eased = game.broomLift * game.broomLift * (3 - 2 * game.broomLift);
@@ -4651,7 +4694,7 @@ function PizzaDashGame() {
           player.height = 116;
           player.velocityY = 0;
           player.grounded = true;
-          player.y = GROUND_Y - player.height - BROOM_HEIGHT * eased;
+          player.y = GROUND_Y - player.height - game.broomAltitude * eased;
         }
         if (game.activePower) {
           game.activePower.timer -= dt;
@@ -4953,6 +4996,25 @@ function PizzaDashGame() {
       const passThrough = HALLOWEEN && (game.broomLift > 0 || game.activePower?.kind === "ghost");
       for (const obstacle of game.obstacles) {
         if (passThrough) {
+          if (game.broomLift > 0 && obstacle.smashed === undefined && !obstacle.hit && overlaps(playerBox, obstacle)) {
+            // Flying the broom into something sweeps it away
+            obstacle.hit = true;
+            obstacle.smashed = 0;
+            const points = BROOM_SWEEP_POINTS * mult;
+            game.score += points;
+            missionEvent("smash");
+            addParticles(obstacle.x + obstacle.width / 2, obstacle.y + obstacle.height / 2, "#ffd84e", 12);
+            game.scorePopups.push({
+              x: obstacle.x + obstacle.width / 2,
+              y: obstacle.y,
+              text: `SWEEP! +${points}`,
+              timer: 0.8,
+              duration: 0.8,
+              color: "#ffd84e",
+            });
+            playSound("stomp");
+            continue;
+          }
           if (game.activePower?.kind === "ghost" && !obstacle.grazed && !obstacle.hit && overlaps(playerBox, obstacle)) {
             obstacle.grazed = true;
             game.score += GHOST_PASS_POINTS * mult;
@@ -5419,6 +5481,8 @@ function PizzaDashGame() {
       }
       if (HALLOWEEN && game.curse?.kind === "mirror") {
         drawSwappedSign(ctx, game.player.x + 76, game.player.y - 40, game.elapsed, game.curse.timer);
+      } else if (HALLOWEEN && game.activePower?.kind === "broom" && game.broomHint > 0) {
+        drawRiderSign(ctx, game.player.x + 76, game.player.y - 40, game.elapsed, IS_TOUCH_DEVICE ? "HOLD JUMP / SLIDE TO FLY" : "W / S: FLY UP / DOWN", "#ffd84e");
       } else if (HALLOWEEN && game.activePower?.kind === "broom" && game.activePower.timer < BROOM_WARNING_SECONDS) {
         drawRiderSign(ctx, game.player.x + 76, game.player.y - 40, game.elapsed, `LANDING ${Math.ceil(game.activePower.timer)}s`, "#ffd84e");
       }
@@ -5778,7 +5842,10 @@ function PizzaDashGame() {
               type="button"
               className="touch-key jump-key"
               aria-label="Jump"
-              onPointerDown={(event) => { event.preventDefault(); jump(); }}
+              onPointerDown={(event) => { holdControl("up", event); jump(); }}
+              onPointerUp={() => setControl("up", false)}
+              onPointerCancel={() => setControl("up", false)}
+              onLostPointerCapture={() => setControl("up", false)}
               onContextMenu={(event) => event.preventDefault()}
             >↑<span>Jump</span></button>
           </div>
@@ -5805,7 +5872,7 @@ function PizzaDashGame() {
           {HALLOWEEN ? (
             <>
               <h2>Survive Halloween night</h2>
-              <p>You skate automatically and speed up the further you go. Jump over pumpkins, gravestones, slime, coffins, skeleton hands and the hearse, or jump right ON pumpkins, coffins and hands to smash them. Slide under signs, cobwebs, ghosts and bats, and stay low under flying witches. Every candy you grab is ammo: press Space to throw it and zap ghosts, bats and witches, or tear down a cobweb (then stomp the spider that drops out). When the thunder stops, the Pumpkin King attacks (hit it twice), and every 1,000 m the witch attacks: dodge their pumpkin bombs or hit her 3 times. Knock on doors for a treat (or a trick!), grab power-ups, and enjoy double points in the haunted stretches. Jump onto graveyard rails to grind (keep your balance with ← → for up to x3 points), take the rooftop route for extra candy and gap-jump tricks, and complete the missions at the top of the screen.</p>
+              <p>You skate automatically and speed up the further you go. Jump over pumpkins, gravestones, slime, coffins, skeleton hands and the hearse, or jump right ON pumpkins, coffins and hands to smash them. Slide under signs, cobwebs, ghosts and bats, and stay low under flying witches. Every candy you grab is ammo: press Space to throw it and zap ghosts, bats and witches, or tear down a cobweb (then stomp the spider that drops out). When the thunder stops, the Pumpkin King attacks (hit it twice), and every 1,000 m the witch attacks: dodge their pumpkin bombs or hit her 3 times. Knock on doors for a treat (or a trick!), grab power-ups (on the broom, hold W / S to fly up and down, chase the sky candy and sweep obstacles away), and enjoy double points in the haunted stretches. Jump onto graveyard rails to grind (keep your balance with ← → for up to x3 points), take the rooftop route for extra candy and gap-jump tricks, and complete the missions at the top of the screen.</p>
             </>
           ) : (
             <>

@@ -809,6 +809,8 @@ button {
 }
 
 .guide-item b {
+  /* Fixed dark colour: the cards are white in both themes (Halloween's page text is light) */
+  color: #1b1d22;
   font-size: 17px;
   margin-bottom: 5px;
 }

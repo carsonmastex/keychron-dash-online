@@ -18,7 +18,8 @@ The game has two looks, chosen when it is built:
 
 - **Halloween** (default for Halloween 2026): haunted Melbourne, candy, pumpkin
   keycaps, re-skinned obstacles plus skeleton hands and bats, four power-ups
-  (broom, shield, candy magnet, ghost mode), haunted stretches at
+  (broom: fly with W/S or ↑↓, sky candy trail, sweep obstacles for +100, safe
+  glide landing; shield, candy magnet, ghost mode), haunted stretches at
   500, 1,500, 2,500 m ... (points x2 for 10 s, with lightning and thunder)
   each followed by a Pumpkin King mini-boss (a big crowned jack-o'-lantern), stomping (jump on pumpkins,
   coffins, hands, the hearse, bombs and spiders), throwing candy with Space
